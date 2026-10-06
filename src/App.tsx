@@ -19,6 +19,8 @@ import {
   LogOut,
   Menu,
   Music2,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RefreshCw,
   Settings,
@@ -35,12 +37,14 @@ import {
 import { api, apiBaseUrl, Artist, Category, configured, login, Song, Tag as TagModel, upload, uploadProfileImage, User } from './api';
 import { CatalogPage } from './pages/CatalogPage';
 import { MusicPage } from './pages/MusicPage';
+import { MusicWorkflowPage } from './pages/MusicWorkflowPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UsersPage } from './pages/UsersPage';
 import { useAppDispatch, useAppSelector } from './store/hooks';
 import { setMe, setToken, signOut as clearAuth } from './store/authSlice';
 
-type Tab = 'users' | 'music' | 'catalog' | 'import' | 'settings';
+type Tab = 'users' | 'music' | 'catalog' | 'import' | 'settings' | 'workflow';
+type CatalogSection = 'artists' | 'categories' | 'tags';
 type Notice = { tone: 'success' | 'error' | 'info'; text: string };
 
 const tokenKey = 'music-platform-admin-token';
@@ -56,6 +60,7 @@ const pageCopy: Record<Tab, { eyebrow: string; title: string; description: strin
   catalog: { eyebrow: 'Content foundation', title: 'Catalog', description: 'Keep artists, listening categories, and tags organised.' },
   import: { eyebrow: 'External sourcing', title: 'Music import', description: 'Search approved providers, check metadata, and import draft tracks for review.' },
   settings: { eyebrow: 'Workspace controls', title: 'Settings', description: 'Manage your admin identity, logo branding, and platform system health.' },
+  workflow: { eyebrow: 'Release flow', title: 'View music workflow', description: 'Walk through the full music lifecycle from catalog setup to publishing.' },
 };
 
 function messageOf(error: unknown) {
@@ -94,6 +99,9 @@ export default function App() {
   const [token, setTokenState] = useState(() => reduxToken || sessionStorage.getItem(tokenKey) || '');
   const [me, setMeState] = useState<User | null>(reduxMe);
   const [tab, setTab] = useState<Tab>('users');
+  const [catalogSection, setCatalogSection] = useState<CatalogSection>('artists');
+  const [workflowStepId, setWorkflowStepId] = useState('catalog-setup');
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -149,25 +157,26 @@ export default function App() {
       <AdminHeader user={me} searchQuery={searchQuery} onSearch={setSearchQuery} onSignOut={requestSignOut} />
       <div className="flex min-h-0 w-full flex-1 overflow-hidden">
         <Sidebar active={tab} onChange={changeTab} user={me} onSignOut={requestSignOut} />
-        <div className="hide-scrollbar min-w-0 flex-1 overflow-y-auto px-4 pb-12 pt-5 sm:px-7 lg:px-10 lg:pt-8">
+        <div className="hide-scrollbar min-w-0 flex-1 overflow-y-auto px-3 pb-8 pt-4 sm:px-5 lg:px-6 lg:pt-5">
           <MobileNav active={tab} onChange={changeTab} onSignOut={requestSignOut} />
           <div className="mb-5 flex items-center gap-2 text-xs font-medium text-muted" aria-label="Breadcrumb">
             <span>Administration</span><ChevronRight size={14} /><span className="text-navy">{copy.title}</span>
           </div>
-          <header className="mb-7 border-b border-border pb-6">
+          <header className="mb-4 border-b border-border pb-4">
             <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-gold-dark">{copy.eyebrow}</p>
             <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">{copy.title}</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{copy.description}</p>
           </header>
-          <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_270px]">
+          <div className={`grid gap-5 ${rightPanelOpen ? 'xl:grid-cols-[minmax(0,1fr)_270px]' : 'xl:grid-cols-[minmax(0,1fr)]'}`}>
             <div className="documentation-panel min-w-0">
               {tab === 'users' && <UsersPage token={token} me={me} notify={setNotice} searchQuery={searchQuery} />}
               {tab === 'music' && <MusicPage token={token} notify={setNotice} searchQuery={searchQuery} />}
-              {tab === 'catalog' && <CatalogPage searchQuery={searchQuery} />}
+              {tab === 'workflow' && <MusicWorkflowPage activeStepId={workflowStepId} onStepSelect={setWorkflowStepId} />}
+              {tab === 'catalog' && <CatalogPage searchQuery={searchQuery} section={catalogSection} onSectionChange={setCatalogSection} />}
               {tab === 'import' && <ImportPanel token={token} notify={setNotice} />}
               {tab === 'settings' && <SettingsPage me={me} notify={setNotice} />}
             </div>
-            <ContextPanel tab={tab} />
+            {rightPanelOpen ? <ContextPanel tab={tab} section={catalogSection} onSectionSelect={setCatalogSection} onTabChange={changeTab} onToggle={() => setRightPanelOpen(false)} activeStepId={workflowStepId} onStepSelect={setWorkflowStepId} /> : <button type="button" onClick={() => setRightPanelOpen(true)} className="fixed right-4 top-28 z-30 hidden items-center gap-2 rounded-xl border border-border bg-white px-3 py-2 text-sm font-semibold text-navy shadow-lg xl:inline-flex" aria-label="Open page panel"><PanelRightOpen size={16} />Open</button>}
           </div>
         </div>
       </div>
@@ -211,6 +220,7 @@ function Login({ onLogin, initialError }: { onLogin: (token: string) => void; in
 const navItems: { id: Tab; label: string; description: string; icon: LucideIcon }[] = [
   { id: 'users', label: 'Users', description: 'Accounts and access', icon: Users },
   { id: 'music', label: 'Music library', description: 'Songs and processing', icon: Music2 },
+  { id: 'workflow', label: 'View workflow', description: 'Release flow', icon: Sparkles },
   { id: 'catalog', label: 'Catalog', description: 'Artists, categories, tags', icon: FolderTree },
   { id: 'import', label: 'Music import', description: 'External provider catalog', icon: UploadCloud },
   { id: 'settings', label: 'Settings', description: 'Profile and controls', icon: Settings },
@@ -238,10 +248,40 @@ function LogoutDialog({ user, onCancel, onConfirm }: { user: User; onCancel: () 
   return <div className="fixed inset-0 z-50 grid place-items-center bg-blackbar/60 p-4 backdrop-blur-sm" onMouseDown={onCancel}><section className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="logout-title" onMouseDown={(event) => event.stopPropagation()}><div className="flex items-start gap-4"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-band text-gold-dark ring-1 ring-primary/20"><LogOut size={20} /></span><div><h2 id="logout-title" className="text-lg font-bold text-ink">Sign out of Music Platform?</h2><p className="mt-1 text-sm leading-6 text-muted">You are signed in as <span className="font-semibold text-ink">{user.email}</span>. You will need to enter your credentials again to return.</p></div></div><div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button className={secondary} type="button" onClick={onCancel}>Cancel</button><button className={danger} type="button" onClick={onConfirm}><LogOut size={16} />Sign out</button></div></section></div>;
 }
 
-function ContextPanel({ tab }: { tab: Tab }) {
-  const sections: Record<Tab, string[]> = { users: ['User accounts', 'Access controls', 'Account status'], music: ['Create a song', 'Audio processing', 'Rights and publishing'], catalog: ['Artists', 'Categories', 'Tags'], import: ['Provider search', 'Metadata review', 'Draft import'], settings: ['Admin profile', 'Branding', 'System health'] };
-  return <aside className="hidden border-l border-border pl-6 xl:block"><div className="sticky top-24"><div className="flex items-center justify-between"><h2 className="text-base font-bold text-ink">On this page</h2><button className="text-muted hover:text-navy" aria-label="Page options"><Menu size={17} /></button></div><nav className="mt-3 border-l-2 border-divider pl-3" aria-label="Page sections">{sections[tab].map((section, index) => <a key={section} href={`#${section.toLowerCase().replaceAll(' ', '-')}`} className={`block py-1.5 text-sm ${index === 0 ? 'font-bold text-navy' : 'text-muted hover:text-navy'}`}>{section}</a>)}</nav><div className="mt-8 border-t border-border pt-6"><h2 className="text-base font-bold text-ink">Recommended tasks</h2><div className="mt-3 rounded-xl border border-border bg-white p-4"><p className="text-sm font-bold text-ink">Get your library ready</p><p className="mt-1 text-xs leading-5 text-muted">Create catalog records, add a song, then upload audio when background processing is enabled.</p><button className="mt-3 text-sm font-bold text-navy hover:text-gold-dark">View music workflow <ChevronRight className="inline" size={15} /></button></div></div></div></aside>;
+function ContextPanel({ tab, section, onSectionSelect, onTabChange, onToggle, activeStepId, onStepSelect }: { tab: Tab; section?: CatalogSection; onSectionSelect?: (section: CatalogSection) => void; onTabChange?: (tab: Tab) => void; onToggle: () => void; activeStepId?: string; onStepSelect?: (id: string) => void }) {
+  const sections: Record<Tab, string[]> = {
+    users: ['User accounts', 'Access controls', 'Account status'],
+    music: ['Create a song', 'Audio processing', 'Rights and publishing'],
+    workflow: ['Catalog setup', 'Song creation', 'Audio upload', 'Review and publish', 'Publish and monitor'],
+    catalog: ['Artists', 'Categories', 'Tags'],
+    import: ['Provider search', 'Metadata review', 'Draft import'],
+    settings: ['Admin profile', 'Branding', 'System health'],
+  };
+  const workflowIds: Record<string, string> = {
+    'Catalog setup': 'catalog-setup',
+    'Song creation': 'song-creation',
+    'Audio upload': 'audio-upload',
+    'Review and publish': 'review-and-publish',
+    'Publish and monitor': 'publish-and-monitor',
+  };
+  const catalogOptions: CatalogSection[] = ['artists', 'categories', 'tags'];
+
+  const scrollToSection = (anchor: string) => {
+    const target = document.getElementById(anchor);
+    if (!target) return;
+    onStepSelect?.(anchor);
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.scrollBy({ top: -90, behavior: 'smooth' });
+  };
+
+  return <aside className="hidden border-l border-border pl-4 xl:block"><div className="sticky top-24"><div className="flex items-center justify-between"><h2 className="text-base font-bold text-ink">On this page</h2><button type="button" onClick={onToggle} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-white text-muted hover:text-navy" aria-label="Close page panel"><PanelRightClose size={16} /></button></div>{tab === 'catalog' ? <nav className="mt-3 space-y-1.5" aria-label="Catalog sections">{catalogOptions.map((option) => <button key={option} type="button" onClick={() => onSectionSelect?.(option)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition ${section === option ? 'bg-navy-soft font-bold text-navy' : 'text-muted hover:bg-surface-soft hover:text-navy'}`}>{option === 'artists' ? 'Artists' : option === 'categories' ? 'Categories' : 'Tags'}</button>)}</nav> : <nav className="mt-3 space-y-1.5" aria-label="Page sections">{sections[tab].map((item, index) => {
+        const anchor = tab === 'workflow' ? workflowIds[item] ?? item.toLowerCase().replaceAll(' ', '-') : item.toLowerCase().replaceAll(' ', '-');
+        return <button key={item} type="button" onClick={() => scrollToSection(anchor)} className="block w-full rounded-lg border border-transparent px-3 py-2 text-left text-sm text-muted transition hover:border-border hover:bg-surface-soft hover:text-navy">
+          {item}
+        </button>;
+      })}</nav>} {tab !== 'workflow' && <div className="mt-6 border-t border-border pt-4"><h2 className="text-base font-bold text-ink">Recommended tasks</h2><div className="mt-3 rounded-xl border border-border bg-white p-3.5"><p className="text-sm font-bold text-ink">Get your library ready</p><p className="mt-1 text-xs leading-5 text-muted">Create catalog records, add a song, then upload audio when background processing is enabled.</p><button type="button" onClick={() => onTabChange?.('workflow')} className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-navy hover:text-gold-dark">View music workflow <ChevronRight className="inline" size={15} /></button></div></div>} </div></aside>;
 }
+
 
 function SettingsPanel({ token, me, notify }: { token: string; me: User; notify: (notice: Notice) => void }) {
   const [profileImage, setProfileImage] = useState<string>(() => readStoredImage('admin-profile-image'));

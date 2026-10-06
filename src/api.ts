@@ -1,12 +1,12 @@
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 export const apiBaseUrl = baseUrl;
 
-export type User = { id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
-export type Artist = { id: string; name: string };
-export type Category = { id: string; name: string; slug: string };
-export type Tag = { id: string; name: string; slug: string };
+export type User = { id: string; _id?: string; name: string; email: string; image?: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
+export type Artist = { id: string; _id?: string; name: string };
+export type Category = { id: string; _id?: string; name: string; slug: string };
+export type Tag = { id: string; _id?: string; name: string; slug: string };
 export type Song = {
-  id: string;
+  id: string; _id?: string;
   title: string;
   artist: string;
   album?: string;
@@ -66,13 +66,10 @@ export async function upload(token: string, songId: string, kind: 'audio' | 'cov
 export async function uploadProfileImage(token: string, file: File) {
   const response = await fetch(`${baseUrl}/users/me/avatar`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': file.type || 'image/png',
-    },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type || 'image/png' },
     body: file,
   });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new ApiError(body?.error?.code || `Profile upload failed (${response.status})`);
-  return body as { id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; createdAt: string };
+  return body as { image: string; name: string; email: string; role: 'user' | 'admin'; createdAt: string };
 }

@@ -42,16 +42,43 @@
 }
 
 /* The signed-in workspace uses a documentation layout with light reading surfaces. */
-.documentation-panel [class~="bg-slate-900/50"] { background-color: #ffffff !important; }
-.documentation-panel [class~="bg-slate-950/35"] { background-color: #fbfaf7 !important; }
+.documentation-panel [class~="bg-slate-900/50"] { background-color: #f9f5ef !important; }
+.documentation-panel [class~="bg-slate-950/35"] { background-color: #f4efe7 !important; }
 .documentation-panel [class~="border-white/[0.09]"],
 .documentation-panel [class~="border-white/[0.08]"],
-.documentation-panel [class~="border-white/15"] { border-color: #e4ddcf !important; }
-.documentation-panel [class~="divide-white/[0.07]"] > :not([hidden]) ~ :not([hidden]) { border-color: #e4ddcf !important; }
+.documentation-panel [class~="border-white/15"],
+.documentation-panel [class~="border-white/10"] { border-color: #e2d9c8 !important; }
+.documentation-panel [class~="divide-white/[0.07]"] > :not([hidden]) ~ :not([hidden]) { border-color: #e2d9c8 !important; }
 .documentation-panel [class~="text-white"],
 .documentation-panel [class~="text-slate-100"],
 .documentation-panel [class~="text-slate-200"],
 .documentation-panel [class~="text-slate-300"] { color: #1f2430 !important; }
 .documentation-panel [class~="text-slate-400"],
-.documentation-panel [class~="text-slate-500"] { color: #6f7480 !important; }
+.documentation-panel [class~="text-slate-500"] { color: #6a6f78 !important; }
 .documentation-panel [class~="bg-white/[0.04]"] { background-color: #fff4d6 !important; }
+.documentation-panel .rounded-2xl,
+.documentation-panel .rounded-3xl,
+.documentation-panel .rounded-xl { border-color: #e6dcc5 !important; }
+.documentation-panel button.bg-violet-500,
+.documentation-panel button.bg-primary,
+.documentation-panel .bg-violet-500,
+.documentation-panel .bg-primary,
+.documentation-panel button.bg-violet-400 { background: linear-gradient(135deg, #c58d16 0%, #d6a323 100%) !important; }
+.documentation-panel .text-violet-300,
+.documentation-panel .text-gold-dark { color: #b98110 !important; }
+.documentation-panel .bg-slate-950\/40,
+.documentation-panel .bg-slate-950\/30,
+.documentation-panel .bg-slate-900\/50 { box-shadow: inset 0 0 0 1px rgba(128, 98, 58, 0.08); }
+.documentation-panel .bg-slate-950\/40 input,
+.documentation-panel .bg-slate-950\/40 select,
+.documentation-panel .bg-slate-950\/40 textarea,
+.documentation-panel input,
+.documentation-panel select,
+.documentation-panel textarea {
+  background: rgba(255,255,255,0.78) !important;
+  color: #1f2430 !important;
+  border-color: #d9d0bd !important;
+}
+.documentation-panel input::placeholder,
+.documentation-panel textarea::placeholder,
+.documentation-panel select::placeholder { color: #7a7f87 !important; }
