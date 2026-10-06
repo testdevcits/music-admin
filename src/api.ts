@@ -1,0 +1,37 @@
+const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
+export type User = { _id: string; name: string; email: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
+export type Artist = { _id: string; name: string };
+export type Category = { _id: string; name: string; slug: string };
+export type Tag = { _id: string; name: string; slug: string };
+export type Song = { _id: string; title: string; artist: string; language: string; processing: 'pending' | 'processing' | 'ready' | 'failed'; published: boolean; audio?: { quality: string }[] };
+export class ApiError extends Error {}
+export const configured = Boolean(baseUrl);
+
+export async function api<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
+  });
+  const body = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(body?.error?.code || `Request failed (${response.status})`);
+  return body as T;
+}
+
+export async function login(email: string, password: string) {
+  const response = await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(body?.error?.code || 'Unable to sign in');
+  return body as { accessToken: string; refreshToken: string };
+}
+
+export async function upload(token: string, songId: string, kind: 'audio' | 'cover', file: File) {
+  const response = await fetch(`${baseUrl}/admin/songs/${songId}/uploads`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type, 'X-Upload-Kind': kind },
+    body: file,
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(body?.error?.code || `Upload failed (${response.status})`);
+  return body as { uploadId: string; jobId: string; status: string };
+}

@@ -1,0 +1,33 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@theme {
+  --font-sans: "DM Sans", "DM Sans Fallback", ui-sans-serif, system-ui, sans-serif;
+  --color-violet-200: #FFF4D6;
+  --color-violet-300: #F2EADC;
+  --color-violet-400: #D6A323;
+  --color-violet-700: #A96F14;
+  --color-violet-950: #15115D;
+  --color-cyan-300: #FFF4D6;
+  --color-cyan-400: #D6A323;
+  --color-emerald-200: #C7F2D2;
+  --color-emerald-300: #7DDC96;
+  --color-emerald-400: #22A447;
+  --color-rose-100: #FFE3E3;
+  --color-rose-200: #FFC5C5;
+  --color-rose-300: #F68C8C;
+  --color-rose-400: #E23B3B;
+  --color-amber-200: #FFE0A0;
+  --color-amber-400: #D89012;
+  --color-sky-100: #E2E2FF;
+  --color-sky-200: #C9CAFF;
+  --color-sky-400: #201B78;
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { background: #FAF6EE; }
+  body { min-width: 320px; min-height: 100vh; margin: 0; background: #FAF6EE; color: #1F2430; }
+  button, input, select, textarea { font: inherit; }
+  button:not(:disabled), input[type='file'] { cursor: pointer; }
+}
