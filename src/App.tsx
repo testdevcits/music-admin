@@ -23,6 +23,7 @@ import {
   Search,
   Sparkles,
   Tag,
+  Trash2,
   UploadCloud,
   Users,
   X,
@@ -46,7 +47,12 @@ const pageCopy: Record<Tab, { eyebrow: string; title: string; description: strin
 };
 
 function messageOf(error: unknown) {
-  return error instanceof Error ? error.message.replaceAll('_', ' ') : 'The request could not be completed.';
+  if (!(error instanceof Error)) return 'The request could not be completed.';
+  const messages: Record<string, string> = {
+    ARTIST_NAME_EXISTS: 'An artist with this name already exists.',
+    ARTIST_IN_USE: 'This artist cannot be removed because a song or album uses it.',
+  };
+  return messages[error.message] || error.message.replaceAll('_', ' ');
 }
 
 function initials(name: string) {
@@ -103,9 +109,9 @@ export default function App() {
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-surface text-ink selection:bg-band">
       <AdminHeader user={me} searchQuery={searchQuery} onSearch={setSearchQuery} onSignOut={requestSignOut} />
-      <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 overflow-hidden">
+      <div className="flex min-h-0 w-full flex-1 overflow-hidden">
         <Sidebar active={tab} onChange={changeTab} user={me} onSignOut={requestSignOut} />
-        <div className="min-w-0 flex-1 overflow-y-auto px-4 pb-12 pt-5 sm:px-7 lg:px-10 lg:pt-8">
+        <div className="hide-scrollbar min-w-0 flex-1 overflow-y-auto px-4 pb-12 pt-5 sm:px-7 lg:px-10 lg:pt-8">
           <MobileNav active={tab} onChange={changeTab} onSignOut={requestSignOut} />
           <div className="mb-5 flex items-center gap-2 text-xs font-medium text-muted" aria-label="Breadcrumb">
             <span>Administration</span><ChevronRight size={14} /><span className="text-navy">{copy.title}</span>
@@ -284,26 +290,63 @@ function LicenseDialog({ token, song, onClose, onSaved, onError }: { token: stri
 }
 
 function CatalogPanel({ token, notify, searchQuery }: { token: string; notify: (notice: Notice) => void; searchQuery: string }) {
+  const [artists, setArtists] = useState<Artist[]>([]);
+  const [artistsLoading, setArtistsLoading] = useState(true);
+  const [artistToDelete, setArtistToDelete] = useState<Artist | null>(null);
+  const [deletingArtist, setDeletingArtist] = useState(false);
+
+  const loadArtists = useCallback(async () => {
+    setArtistsLoading(true);
+    try { setArtists((await api<{ data: Artist[] }>(token, '/admin/artists?limit=100')).data); }
+    catch (error) { notify({ tone: 'error', text: messageOf(error) }); }
+    finally { setArtistsLoading(false); }
+  }, [token, notify]);
+
+  useEffect(() => { void loadArtists(); }, [loadArtists]);
+
   const create = (kind: 'artists' | 'categories' | 'tags') => async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = event.currentTarget;
-    try { await api(token, `/admin/${kind}`, { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(form))) }); form.reset(); notify({ tone: 'success', text: `${kind.slice(0, -1).replace(/^./, (character) => character.toUpperCase())} created.` }); }
+    try { await api(token, `/admin/${kind}`, { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(form))) }); form.reset(); if (kind === 'artists') await loadArtists(); notify({ tone: 'success', text: `${kind.slice(0, -1).replace(/^./, (character) => character.toUpperCase())} created.` }); }
     catch (error) { notify({ tone: 'error', text: messageOf(error) }); }
   };
+
+  async function deleteArtist() {
+    if (!artistToDelete) return;
+    setDeletingArtist(true);
+    try {
+      await api(token, `/admin/artists/${artistToDelete._id}`, { method: 'DELETE' });
+      const removedName = artistToDelete.name;
+      setArtistToDelete(null);
+      await loadArtists();
+      notify({ tone: 'success', text: `${removedName} was removed.` });
+    } catch (error) { notify({ tone: 'error', text: messageOf(error) }); }
+    finally { setDeletingArtist(false); }
+  }
+
   const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleArtists = normalizedQuery ? artists.filter((artist) => artist.name.toLowerCase().includes(normalizedQuery)) : artists;
   const cards = [
-    { key: 'artists', title: 'Artists', description: 'Create artists before creating their songs.', keywords: 'artist musician singer', icon: Disc3, form: <Field label="Artist name"><input className={inputClass} name="name" placeholder="Artist name" required /></Field> },
+    { key: 'artists', title: 'Artists', description: 'Create artists before creating their songs.', keywords: 'artist musician singer', icon: Disc3, form: <Field label="Artist name"><input className={inputClass} name="name" placeholder="Artist name" required /></Field>, footer: <ArtistList artists={visibleArtists} loading={artistsLoading} filtered={Boolean(normalizedQuery)} onDelete={setArtistToDelete} /> },
     { key: 'categories', title: 'Categories', description: 'Build dynamic genres and devotional groups.', keywords: 'category genre devotional bhakti', icon: FolderTree, form: <><Field label="Category name"><input className={inputClass} name="name" placeholder="e.g. Bhakti" required /></Field><Field label="Slug"><input className={inputClass} name="slug" placeholder="e.g. bhakti" pattern="[a-z0-9]+(-[a-z0-9]+)*" required /></Field></> },
     { key: 'tags', title: 'Tags', description: 'Improve discovery with searchable descriptors.', keywords: 'tag search descriptor', icon: Tag, form: <><Field label="Tag name"><input className={inputClass} name="name" placeholder="e.g. Peaceful" required /></Field><Field label="Slug"><input className={inputClass} name="slug" placeholder="e.g. peaceful" pattern="[a-z0-9]+(-[a-z0-9]+)*" required /></Field></> },
   ] as const;
-  const visibleCards = normalizedQuery ? cards.filter((card) => `${card.title} ${card.description} ${card.keywords}`.toLowerCase().includes(normalizedQuery)) : cards;
-  return visibleCards.length === 0 ? <Empty title="No matching catalog tools" text="Try searching for artists, categories, genres, or tags." icon={Search} /> : <section className="grid gap-5 xl:grid-cols-3">{visibleCards.map((card) => <CatalogCard key={card.key} title={card.title} description={card.description} icon={card.icon} onSubmit={create(card.key)}>{card.form}</CatalogCard>)}</section>;
+  const visibleCards = normalizedQuery ? cards.filter((card) => `${card.title} ${card.description} ${card.keywords}`.toLowerCase().includes(normalizedQuery) || (card.key === 'artists' && visibleArtists.length > 0)) : cards;
+  return <>{visibleCards.length === 0 ? <Empty title="No matching catalog tools" text="Try searching for artists, categories, genres, or tags." icon={Search} /> : <section className="grid items-start gap-5 xl:grid-cols-3">{visibleCards.map((card) => <CatalogCard key={card.key} title={card.title} description={card.description} icon={card.icon} onSubmit={create(card.key)} footer={'footer' in card ? card.footer : undefined}>{card.form}</CatalogCard>)}</section>}{artistToDelete && <DeleteArtistDialog artist={artistToDelete} busy={deletingArtist} onCancel={() => setArtistToDelete(null)} onConfirm={() => void deleteArtist()} />}</>;
 }
 
-function CatalogCard({ title, description, icon: Icon, onSubmit, children }: { title: string; description: string; icon: LucideIcon; onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>; children: ReactNode }) {
+function ArtistList({ artists, loading, filtered, onDelete }: { artists: Artist[]; loading: boolean; filtered: boolean; onDelete: (artist: Artist) => void }) {
+  return <div className="mt-5 border-t border-border pt-4"><div className="mb-2 flex items-center justify-between"><h3 className="text-xs font-bold uppercase tracking-[0.14em] text-brown">Existing artists</h3><span className="text-xs text-muted">{artists.length}</span></div>{loading ? <div className="flex items-center gap-2 py-3 text-sm text-muted"><LoaderCircle className="animate-spin" size={15} />Loading artists…</div> : artists.length === 0 ? <p className="py-3 text-sm text-muted">{filtered ? 'No matching artists.' : 'No artists added yet.'}</p> : <div className="max-h-52 space-y-1 overflow-y-auto pr-1">{artists.map((artist) => <div key={artist._id} className="group flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-soft"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-band text-gold-dark"><Disc3 size={15} /></span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{artist.name}</span><button type="button" onClick={() => onDelete(artist)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/30" aria-label={`Remove ${artist.name}`} title="Remove artist"><Trash2 size={16} /></button></div>)}</div>}</div>;
+}
+
+function DeleteArtistDialog({ artist, busy, onCancel, onConfirm }: { artist: Artist; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-blackbar/60 p-4 backdrop-blur-sm" onMouseDown={busy ? undefined : onCancel}><section className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="delete-artist-title" onMouseDown={(event) => event.stopPropagation()}><div className="flex items-start gap-4"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-danger/10 text-danger"><Trash2 size={20} /></span><div><h2 id="delete-artist-title" className="text-lg font-bold text-ink">Remove {artist.name}?</h2><p className="mt-1 text-sm leading-6 text-muted">The artist will be permanently removed. Artists attached to songs or albums cannot be deleted.</p></div></div><div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button className={secondary} type="button" disabled={busy} onClick={onCancel}>Cancel</button><button className={danger} type="button" disabled={busy} onClick={onConfirm}>{busy ? <LoaderCircle className="animate-spin" size={16} /> : <Trash2 size={16} />}Remove artist</button></div></section></div>;
+}
+
+function CatalogCard({ title, description, icon: Icon, onSubmit, children, footer }: { title: string; description: string; icon: LucideIcon; onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>; children: ReactNode; footer?: ReactNode }) {
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) { setBusy(true); try { await onSubmit(event); } finally { setBusy(false); } }
   const singularTitle = title === 'Categories' ? 'Category' : title.slice(0, -1);
-  return <article className="rounded-2xl border border-border bg-white p-5 shadow-[0_14px_35px_rgba(31,36,48,0.08)] sm:p-6"><span className="grid h-11 w-11 place-items-center rounded-xl bg-band text-gold-dark ring-1 ring-primary/20"><Icon size={21} /></span><h2 className="mt-5 text-lg font-bold text-ink">{title}</h2><p className="mt-1 min-h-10 text-sm leading-5 text-muted">{description}</p><form className="mt-5 space-y-4" onSubmit={(event) => void submit(event)}>{children}<button className={`${primary} w-full`} disabled={busy}>{busy && <LoaderCircle className="animate-spin" size={16} />}<Plus size={16} />Add {singularTitle}</button></form></article>;
+  return <article className="rounded-2xl border border-border bg-white p-5 shadow-[0_14px_35px_rgba(31,36,48,0.08)] sm:p-6"><span className="grid h-11 w-11 place-items-center rounded-xl bg-band text-gold-dark ring-1 ring-primary/20"><Icon size={21} /></span><h2 className="mt-5 text-lg font-bold text-ink">{title}</h2><p className="mt-1 min-h-10 text-sm leading-5 text-muted">{description}</p><form className="mt-5 space-y-4" onSubmit={(event) => void submit(event)}>{children}<button className={`${primary} w-full`} disabled={busy}>{busy && <LoaderCircle className="animate-spin" size={16} />}<Plus size={16} />Add {singularTitle}</button></form>{footer}</article>;
 }
 
 function Metric({ label, value, icon: Icon, tone }: { label: string; value: number; icon: LucideIcon; tone: 'violet' | 'emerald' | 'amber' | 'cyan' }) {
