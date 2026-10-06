@@ -4,7 +4,33 @@ export type User = { _id: string; name: string; email: string; role: 'user' | 'a
 export type Artist = { _id: string; name: string };
 export type Category = { _id: string; name: string; slug: string };
 export type Tag = { _id: string; name: string; slug: string };
-export type Song = { _id: string; title: string; artist: string; language: string; processing: 'pending' | 'processing' | 'ready' | 'failed'; published: boolean; audio?: { quality: string }[] };
+export type Song = {
+  _id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  artistId?: string;
+  albumId?: string;
+  language: string;
+  duration?: number;
+  genre?: string;
+  year?: number;
+  trackNumber?: number;
+  discNumber?: number;
+  format?: string;
+  bitrate?: number;
+  artwork?: string;
+  url?: string;
+  coverUrl?: string;
+  coverPublicId?: string;
+  isFavorite?: boolean;
+  playCount?: number;
+  lastPlayedAt?: string | null;
+  dateAdded?: number | string | null;
+  processing: 'pending' | 'processing' | 'ready' | 'failed';
+  published: boolean;
+  audio?: { quality: string }[];
+};
 export class ApiError extends Error {}
 export const configured = Boolean(baseUrl);
 
