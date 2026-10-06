@@ -26,10 +26,19 @@
 
 @layer base {
   * { box-sizing: border-box; }
-  html { background: #FAF6EE; }
+  html {
+    background: #FAF6EE;
+    scrollbar-color: #9E886A #F2EADC;
+    scrollbar-width: thin;
+  }
   body { min-width: 320px; min-height: 100vh; margin: 0; background: #FAF6EE; color: #1F2430; }
   button, input, select, textarea { font: inherit; }
   button:not(:disabled), input[type='file'] { cursor: pointer; }
+
+  *::-webkit-scrollbar { width: 5px; height: 5px; }
+  *::-webkit-scrollbar-track { background: #F2EADC; }
+  *::-webkit-scrollbar-thumb { border-radius: 9999px; background: #9E886A; }
+  *::-webkit-scrollbar-thumb:hover { background: #D6A323; }
 }
 
 /* The signed-in workspace uses a documentation layout with light reading surfaces. */
