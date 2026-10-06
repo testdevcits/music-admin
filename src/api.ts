@@ -48,6 +48,8 @@ export type Song = {
   playCount?: number;
   lastPlayedAt?: string | null;
   dateAdded?: number | string | null;
+  categories?: string[];
+  tags?: string[];
   processing: 'pending' | 'processing' | 'ready' | 'failed';
   published: boolean;
   audio?: { quality: string }[];

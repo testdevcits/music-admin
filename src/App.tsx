@@ -11,7 +11,6 @@ import {
   Disc3,
   Eye,
   EyeOff,
-  FileAudio,
   FolderTree,
   ImageUp,
   LibraryBig,
@@ -488,18 +487,25 @@ function MusicPanel({ token, notify, searchQuery }: { token: string; notify: (no
       setCreatingSong(false);
     }
   }
-  async function uploadMedia(songId: string, file: File | undefined, kind: 'audio' | 'cover') {
-    if (!file) { notify({ tone: 'error', text: `Choose a ${kind} file first.` }); return; }
-    if (kind === 'audio' && !file.name.toLowerCase().endsWith('.mp3')) { notify({ tone: 'error', text: 'Choose an MP3 audio file.' }); return; }
-    try { const queued = await upload(token, songId, kind, file); notify({ tone: 'success', text: `${kind === 'audio' ? 'Audio' : 'Cover'} received and queued as job ${queued.jobId}.` }); await load(); }
-    catch (error) { notify({ tone: 'error', text: messageOf(error) }); }
-  }
   async function publish(song: Song) {
     try { await api(token, `/admin/songs/${song.mongoId ?? song.id}/publish`, { method: 'POST', body: JSON.stringify({ published: !song.published }) }); await load(); notify({ tone: 'success', text: `${song.title} is now ${song.published ? 'unpublished' : 'published'}.` }); }
     catch (error) { notify({ tone: 'error', text: messageOf(error) }); }
   }
+  async function removeSong(song: Song) {
+    if (!window.confirm(`Delete “${song.title}”? This cannot be undone.`)) return;
+    try {
+      await api(token, `/admin/songs/${song.mongoId ?? song.id}`, { method: 'DELETE' });
+      await load();
+      notify({ tone: 'success', text: `${song.title} was deleted.` });
+    } catch (error) {
+      notify({ tone: 'error', text: messageOf(error) });
+    }
+  }
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const visibleSongs = normalizedQuery ? songs.filter((song) => [song.title, song.language, song.processing, song.published ? 'published' : 'unpublished'].some((value) => value.toLowerCase().includes(normalizedQuery))) : songs;
+  const artistNames = new Map(artists.map((artist) => [artist.mongoId ?? artist._id ?? artist.id, artist.name]));
+  const categoryNames = new Map(categories.map((category) => [category.mongoId ?? category._id ?? category.id, category.name]));
+  const tagNames = new Map(tags.map((tag) => [tag.mongoId ?? tag._id ?? tag.id, tag.name]));
   return (
     <section className="space-y-5">
       {showCreateForm ? (
@@ -567,7 +573,7 @@ function MusicPanel({ token, notify, searchQuery }: { token: string; notify: (no
               <button type="button" className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-navy-dark hover:bg-gold-dark" aria-label="Add song" title="Add song" onClick={() => setShowCreateForm(true)}><Plus size={20} /></button>
             </div>
           </div>
-          {loading ? <LoadingRows /> : visibleSongs.length === 0 ? <Empty title={normalizedQuery ? 'No matching songs' : 'Your library is empty'} text={normalizedQuery ? 'Try a different title, language, processing state, or publishing state.' : 'Use the + button to create a song.'} icon={Music2} /> : <div className="divide-y divide-white/[0.07]">{visibleSongs.map((song) => <SongRow key={song.id} song={song} onUpload={uploadMedia} onLicense={setLicenseSong} onPublish={publish} />)}</div>}
+          {loading ? <LoadingRows /> : visibleSongs.length === 0 ? <Empty title={normalizedQuery ? 'No matching songs' : 'Your library is empty'} text={normalizedQuery ? 'Try a different title, language, processing state, or publishing state.' : 'Use the + button to create a song.'} icon={Music2} /> : <div className="divide-y divide-white/[0.07]">{visibleSongs.map((song) => <SongRow key={song.id} song={song} artistName={artistNames.get(song.artist) || 'Unknown artist'} categoryNames={(song.categories || []).map((value) => categoryNames.get(value) || value)} tagNames={(song.tags || []).map((value) => tagNames.get(value) || value)} onLicense={setLicenseSong} onPublish={publish} onDelete={removeSong} />)}</div>}
         </section>
       )}
       {licenseSong && <LicenseDialog token={token} song={licenseSong} onClose={() => setLicenseSong(null)} onSaved={async () => { setLicenseSong(null); await load(); notify({ tone: 'success', text: 'Music rights and availability have been saved.' }); }} onError={(text) => notify({ tone: 'error', text })} />}
@@ -721,16 +727,13 @@ function ImportPanel({ token, notify }: { token: string; notify: (notice: Notice
   );
 }
 
-function SongRow({ song, onUpload, onLicense, onPublish }: { song: Song; onUpload: (id: string, file: File | undefined, kind: 'audio' | 'cover') => Promise<void>; onLicense: (song: Song) => void; onPublish: (song: Song) => Promise<void> }) {
-  const [audio, setAudio] = useState<File>(); const [cover, setCover] = useState<File>(); const [busy, setBusy] = useState<'audio' | 'cover' | 'publish' | null>(null);
-  async function run(kind: 'audio' | 'cover') { setBusy(kind); try { await onUpload(song.mongoId ?? song.id, kind === 'audio' ? audio : cover, kind); } finally { setBusy(null); } }
+function SongRow({ song, artistName, categoryNames, tagNames, onLicense, onPublish, onDelete }: { song: Song; artistName: string; categoryNames: string[]; tagNames: string[]; onLicense: (song: Song) => void; onPublish: (song: Song) => Promise<void>; onDelete: (song: Song) => Promise<void> }) {
+  const [coverUnavailable, setCoverUnavailable] = useState(false); const [busy, setBusy] = useState<'publish' | null>(null);
   async function publish() { setBusy('publish'); try { await onPublish(song); } finally { setBusy(null); } }
   const qualities = song.audio?.map((item) => item.quality).join(' · ');
-  return <article className="px-5 py-5 sm:px-6"><div className="flex flex-col gap-5 xl:flex-row xl:items-start"><div className="flex min-w-0 flex-1 gap-3">{song.coverUrl ? <img src={song.coverUrl} alt={`${song.title} cover`} className="h-11 w-11 shrink-0 rounded-2xl object-cover ring-1 ring-white/10" onError={(event) => { event.currentTarget.hidden = true; }} /> : <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-400/25 to-cyan-400/15 text-violet-200"><Music2 size={20} /></span>}<div className="min-w-0"><h3 className="truncate font-bold text-white">{song.title}</h3><p className="mt-1 text-sm text-slate-500">{song.language.toUpperCase()} · {qualities || 'No processed audio yet'}</p><div className="mt-3 flex flex-wrap gap-2"><ProcessingBadge state={song.processing} />{song.published && <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-bold text-emerald-200">Published</span>}</div></div></div><div className="grid gap-3 sm:grid-cols-2 xl:w-[620px]"><UploadControl label="Source MP3" accept="audio/mpeg,.mp3" file={audio} onChange={setAudio} onUpload={() => void run('audio')} busy={busy === 'audio'} /><UploadControl label="Cover image" accept="image/jpeg,image/png,image/webp" file={cover} onChange={setCover} onUpload={() => void run('cover')} busy={busy === 'cover'} /></div><div className="flex flex-wrap gap-2 xl:w-48 xl:justify-end"><button className={secondary} onClick={() => onLicense(song)}><ShieldCheck size={15} />Rights</button>{song.processing === 'ready' && <button className={song.published ? danger : primary} disabled={busy === 'publish'} onClick={() => void publish()}>{busy === 'publish' && <LoaderCircle className="animate-spin" size={15} />}{song.published ? 'Unpublish' : 'Publish'}</button>}</div></div></article>;
-}
-
-function UploadControl({ label, accept, file, onChange, onUpload, busy }: { label: string; accept: string; file?: File; onChange: (file: File | undefined) => void; onUpload: () => void; busy: boolean }) {
-  return <div className="rounded-2xl border border-dashed border-white/15 bg-slate-950/35 p-3"><div className="flex items-center gap-2 text-xs font-semibold text-slate-300"><FileAudio size={15} className="text-violet-300" />{label}</div><div className="mt-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-[11px] text-slate-400">Select a file from your device. URL fields are optional metadata only.</div><label className="mt-2 block"><span className="sr-only">Choose {label.toLowerCase()}</span><input className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-white/[0.08] file:px-2.5 file:py-1.5 file:text-xs file:font-semibold file:text-slate-200 hover:file:bg-white/[0.14]" type="file" accept={accept} onChange={(event) => onChange(event.target.files?.[0])} /></label><div className="mt-3 flex items-center justify-between gap-2"><p className="min-w-0 truncate text-xs text-slate-500">{file?.name || 'No file selected'}</p><button className={secondary} disabled={!file || busy} onClick={onUpload}>{busy ? <LoaderCircle className="animate-spin" size={14} /> : <UploadCloud size={14} />}Upload file</button></div></div>;
+  const audioStatus = qualities || (song.processing === 'pending' ? 'MP3 is waiting for background processing' : song.processing === 'processing' ? 'MP3 is being processed' : 'MP3 processing failed');
+  const duration = song.duration ? `${Math.floor(song.duration / 60)}:${String(song.duration % 60).padStart(2, '0')}` : null;
+  return <article className="px-5 py-5 sm:px-6"><div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between"><div className="flex min-w-0 flex-1 gap-3">{song.coverUrl && !coverUnavailable ? <img src={song.coverUrl} alt={`${song.title} cover`} className="h-16 w-16 shrink-0 rounded-2xl object-cover ring-1 ring-white/10" onError={() => setCoverUnavailable(true)} /> : <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-400/25 to-cyan-400/15 text-violet-200"><Music2 size={24} /></span>}<div className="min-w-0"><h3 className="truncate font-bold text-white">{song.title}</h3><p className="mt-1 truncate text-sm text-slate-300">{artistName}</p><p className="mt-1 text-xs text-slate-500">{song.language} {song.genre ? `· ${song.genre}` : ''} {song.year ? `· ${song.year}` : ''} {duration ? `· ${duration}` : ''}</p><p className="mt-1 text-xs text-slate-400">{audioStatus}</p><div className="mt-3 flex flex-wrap gap-2"><ProcessingBadge state={song.processing} />{song.published && <span className="rounded-full border px-2.5 py-1 text-xs font-bold" style={{ borderColor: '#86efac', backgroundColor: '#dcfce7', color: '#166534' }}>Published</span>}{categoryNames.map((name) => <span key={`category-${name}`} className="rounded-full border px-2.5 py-1 text-xs font-semibold" style={{ borderColor: '#c4b5fd', backgroundColor: '#ede9fe', color: '#5b21b6' }}>{name}</span>)}{tagNames.map((name) => <span key={`tag-${name}`} className="rounded-full border px-2.5 py-1 text-xs font-semibold" style={{ borderColor: '#67e8f9', backgroundColor: '#cffafe', color: '#155e75' }}>#{name}</span>)}</div></div></div><div className="flex shrink-0 flex-wrap gap-2 sm:max-w-52 sm:justify-end"><button className={secondary} onClick={() => onLicense(song)}><ShieldCheck size={15} />Rights</button>{song.processing === 'ready' && <button className={song.published ? danger : primary} disabled={busy === 'publish'} onClick={() => void publish()}>{busy === 'publish' && <LoaderCircle className="animate-spin" size={15} />}{song.published ? 'Unpublish' : 'Publish'}</button>}<button className={danger} onClick={() => void onDelete(song)}><Trash2 size={15} />Delete</button></div></div></article>;
 }
 
 function LicenseDialog({ token, song, onClose, onSaved, onError }: { token: string; song: Song; onClose: () => void; onSaved: () => Promise<void>; onError: (message: string) => void }) {
@@ -741,7 +744,29 @@ function LicenseDialog({ token, song, onClose, onSaved, onError }: { token: stri
     try { const endsAt = new Date(`${String(form.get('endsAt'))}T23:59:59.999Z`); const songId = song.mongoId ?? song.id; await api(token, `/admin/licenses/${songId}`, { method: 'PUT', body: JSON.stringify({ song: songId, holder: form.get('holder'), startsAt: new Date().toISOString(), endsAt: endsAt.toISOString(), streaming: true, offline: true, territories: [], enabled: true }) }); await onSaved(); }
     catch (error) { onError(messageOf(error)); } finally { setBusy(false); }
   }
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="license-title"><form onSubmit={submit} className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl shadow-black/50"><div className="flex items-start gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-400/15 text-violet-300"><ShieldCheck size={20} /></span><div className="flex-1"><h2 id="license-title" className="font-bold text-white">Set music rights</h2><p className="mt-1 text-sm text-slate-500">{song.title} will be eligible for streaming and offline playback until this license expires.</p></div><button className="rounded-lg p-1 text-slate-400 hover:bg-white/10" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button></div><div className="mt-6 space-y-4"><Field label="Rights holder"><input className={inputClass} name="holder" placeholder="Label or rights owner" required /></Field><Field label="License expiry"><input className={inputClass} name="endsAt" type="date" min={new Date().toISOString().slice(0, 10)} defaultValue={new Date(Date.now() + 31536000000).toISOString().slice(0, 10)} required /></Field></div><div className="mt-7 flex justify-end gap-3"><button className={secondary} type="button" onClick={onClose}>Cancel</button><button className={primary} disabled={busy}>{busy && <LoaderCircle className="animate-spin" size={16} />}Save rights</button></div></form></div>;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="license-title">
+      <form onSubmit={submit} className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl shadow-black/50">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-400/15" style={{ color: '#c4b5fd' }}><ShieldCheck size={20} /></span>
+          <div className="flex-1">
+            <h2 id="license-title" className="font-bold" style={{ color: '#f8fafc' }}>Set music rights</h2>
+            <p className="mt-1 text-sm leading-5" style={{ color: '#cbd5e1' }}>{song.title} will be eligible for streaming and offline playback until this license expires.</p>
+          </div>
+          <button className="rounded-lg p-1 hover:bg-white/10" style={{ color: '#cbd5e1' }} type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="mt-6 space-y-4">
+          <label className="block text-sm font-semibold" style={{ color: '#e2e8f0' }}>Rights holder
+            <input className={inputClass} name="holder" placeholder="Label or rights owner" required />
+          </label>
+          <label className="block text-sm font-semibold" style={{ color: '#e2e8f0' }}>License expiry
+            <input className={inputClass} name="endsAt" type="date" min={new Date().toISOString().slice(0, 10)} defaultValue={new Date(Date.now() + 31536000000).toISOString().slice(0, 10)} required />
+          </label>
+        </div>
+        <div className="mt-7 flex justify-end gap-3"><button className={secondary} type="button" onClick={onClose}>Cancel</button><button className={primary} disabled={busy}>{busy && <LoaderCircle className="animate-spin" size={16} />}Save rights</button></div>
+      </form>
+    </div>
+  );
 }
 
 function CatalogPanel({ token, notify, searchQuery }: { token: string; notify: (notice: Notice) => void; searchQuery: string }) {
@@ -932,7 +957,7 @@ function CustomMultiSelect({ name, items, placeholder, helper }: { name: string;
   );
 }
 function StatusBadge({ active }: { active: boolean }) { return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${active ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-rose-400/20 bg-rose-400/10 text-rose-200'}`}><span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-emerald-300' : 'bg-rose-300'}`} />{active ? 'Active' : 'Disabled'}</span>; }
-function ProcessingBadge({ state }: { state: Song['processing'] }) { const styles = { pending: 'border-amber-400/20 bg-amber-400/10 text-amber-200', processing: 'border-sky-400/20 bg-sky-400/10 text-sky-200', ready: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200', failed: 'border-rose-400/20 bg-rose-400/10 text-rose-200' }; return <span className={`rounded-full border px-2.5 py-1 text-xs font-bold capitalize ${styles[state]}`}>{state}</span>; }
+function ProcessingBadge({ state }: { state: Song['processing'] }) { const styles = { pending: { borderColor: '#facc15', backgroundColor: '#fef3c7', color: '#854d0e' }, processing: { borderColor: '#7dd3fc', backgroundColor: '#e0f2fe', color: '#075985' }, ready: { borderColor: '#86efac', backgroundColor: '#dcfce7', color: '#166534' }, failed: { borderColor: '#fda4af', backgroundColor: '#ffe4e6', color: '#9f1239' } }; return <span className="rounded-full border px-2.5 py-1 text-xs font-bold capitalize" style={styles[state]}>{state}</span>; }
 function Empty({ title, text, icon: Icon }: { title: string; text: string; icon: LucideIcon }) { return <div className="grid min-h-72 place-items-center px-5 py-10 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white/[0.06] text-slate-400"><Icon size={22} /></span><h3 className="mt-4 font-bold text-slate-200">{title}</h3><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">{text}</p></div></div>; }
 function LoadingRows() { return <div className="divide-y divide-white/[0.07] px-5 py-2 sm:px-6">{Array.from({ length: 4 }, (_, index) => <div className="flex items-center gap-3 py-4" key={index}><div className="h-10 w-10 animate-pulse rounded-full bg-white/[0.06]" /><div className="flex-1 space-y-2"><div className="h-3 w-36 animate-pulse rounded bg-white/[0.07]" /><div className="h-2.5 w-52 animate-pulse rounded bg-white/[0.05]" /></div><div className="h-8 w-20 animate-pulse rounded-xl bg-white/[0.06]" /></div>)}</div>; }
 function selectedValues(form: HTMLFormElement, name: string) { const elements = Array.from(form.elements).filter((element) => element instanceof HTMLElement && element.getAttribute('name') === name); return elements.flatMap((element) => { if (element instanceof HTMLSelectElement) return Array.from(element.selectedOptions).map((option) => option.value); if (element instanceof HTMLInputElement) { if (element.type === 'checkbox' || element.type === 'radio') return element.checked ? [element.value] : []; if (element.type === 'hidden' && element.value) return [element.value]; } return []; }); }
