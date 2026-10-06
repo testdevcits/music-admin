@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { api, type User, uploadProfileImage } from '../api';
+import { api, apiBaseUrl, type User, uploadProfileImage } from '../api';
 
 type Props = {
   me: User;
@@ -24,24 +24,34 @@ function normalizeImageUrl(value: string | { url?: string; alt?: string; publicI
 
 export function SettingsPage({ me, token, notify, onMeUpdate }: Props) {
   const [name, setName] = useState(me.name);
-  const [email, setEmail] = useState(me.email);
+  const email = me.email;
   const [profileImage, setProfileImage] = useState(() => normalizeImageUrl(me.image));
   const [logo, setLogo] = useState(readStoredImage(STORAGE_KEYS.logo));
-  const [checking, setChecking] = useState(false);
-  const [health, setHealth] = useState({
-    backend: 'Online',
-    latency: '120ms',
-    queue: 'Ready',
-  });
+  const [checking, setChecking] = useState(true);
+  const [health, setHealth] = useState({ backend: 'Checking', latency: '—', jobs: '—' });
+  const [saving, setSaving] = useState(false);
 
-  const saveProfile = (event: FormEvent) => {
+  const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
-    notify({ tone: 'success', text: 'Profile details updated successfully.' });
+    setSaving(true);
+    try {
+      const updated = await api<User>(token, '/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      onMeUpdate(updated);
+      notify({ tone: 'success', text: 'Profile details saved.' });
+    } catch (error) {
+      notify({ tone: 'error', text: error instanceof Error ? error.message.replaceAll('_', ' ') : 'Profile update failed.' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   useEffect(() => {
     setProfileImage(normalizeImageUrl(me.image));
-  }, [me.image]);
+    setName(me.name);
+  }, [me.image, me.name]);
 
   const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>, key: 'profile' | 'logo') => {
     const file = event.target.files?.[0];
@@ -75,25 +85,31 @@ export function SettingsPage({ me, token, notify, onMeUpdate }: Props) {
     reader.readAsDataURL(file);
   };
 
-  const refreshHealth = () => {
+  const refreshHealth = useCallback(async (showNotice = true) => {
     setChecking(true);
-    const nextBackend = Math.random() > 0.15 ? 'Online' : 'Offline';
-    const nextLatency = `${Math.floor(90 + Math.random() * 130)}ms`;
-    const nextQueue = Math.random() > 0.2 ? 'Ready' : 'Delayed';
-
-    setTimeout(() => {
+    const started = performance.now();
+    try {
+      const healthUrl = `${apiBaseUrl.replace(/\/api\/v1\/?$/, '')}/health/ready`;
+      const response = await fetch(healthUrl, { cache: 'no-store' });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.status !== 'ready') throw new Error('Backend unavailable');
       setHealth({
-        backend: nextBackend,
-        latency: nextLatency,
-        queue: nextQueue,
+        backend: 'Ready',
+        latency: `${Math.round(performance.now() - started)} ms`,
+        jobs: result.backgroundJobs === 'enabled' ? 'Enabled' : 'Disabled',
       });
+      if (showNotice) notify({ tone: 'success', text: 'System health refreshed.' });
+    } catch {
+      setHealth({ backend: 'Unavailable', latency: '—', jobs: '—' });
+      if (showNotice) notify({ tone: 'error', text: 'Could not read system health from the backend.' });
+    } finally {
       setChecking(false);
-      notify({
-        tone: nextBackend === 'Online' ? 'success' : 'error',
-        text: nextBackend === 'Online' ? 'System health refreshed successfully.' : 'Backend connection check failed. Please retry.',
-      });
-    }, 500);
-  };
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    void refreshHealth(false);
+  }, [refreshHealth]);
 
   return (
     <section className="space-y-5">
@@ -118,8 +134,8 @@ export function SettingsPage({ me, token, notify, onMeUpdate }: Props) {
 
           <form onSubmit={saveProfile} className="mt-5 space-y-4">
             <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-xl border border-[#d9d0bd] bg-[#f7f2ea] px-3 py-2 text-sm text-[#1f2430] placeholder:text-[#7a7f87]" placeholder="Display name" />
-            <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-[#d9d0bd] bg-[#f7f2ea] px-3 py-2 text-sm text-[#1f2430] placeholder:text-[#7a7f87]" placeholder="Email" />
-            <button type="submit" className="rounded-xl bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400">Save profile</button>
+            <input value={email} readOnly className="w-full rounded-xl border border-[#d9d0bd] bg-[#f7f2ea] px-3 py-2 text-sm text-[#1f2430]" aria-label="Email address" />
+            <button type="submit" disabled={saving} className="rounded-xl bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400 disabled:opacity-60">{saving ? 'Saving…' : 'Save profile'}</button>
           </form>
         </article>
 
@@ -146,7 +162,7 @@ export function SettingsPage({ me, token, notify, onMeUpdate }: Props) {
           </div>
           <button
             type="button"
-            onClick={refreshHealth}
+            onClick={() => void refreshHealth()}
             disabled={checking}
             className="inline-flex items-center justify-center rounded-xl border border-[#d9d0bd] bg-[#f7f2ea] px-3 py-2 text-sm font-medium text-[#1f2430] shadow-sm transition hover:bg-[#efe6d8] disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -155,14 +171,14 @@ export function SettingsPage({ me, token, notify, onMeUpdate }: Props) {
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className={`rounded-2xl border p-4 text-sm font-medium ${health.backend === 'Online' ? 'border-[#a9c8b5] bg-[#dfeee4] text-[#1f2430]' : 'border-[#d9a3a3] bg-[#f7e3e3] text-[#1f2430]'}`}>
+          <div className={`rounded-2xl border p-4 text-sm font-medium ${health.backend === 'Ready' ? 'border-[#a9c8b5] bg-[#dfeee4] text-[#1f2430]' : health.backend === 'Unavailable' ? 'border-[#d9a3a3] bg-[#f7e3e3] text-[#1f2430]' : 'border-[#d9d0bd] bg-white text-[#1f2430]'}`}>
             Backend: {health.backend}
           </div>
           <div className="rounded-2xl border border-[#c9b5d9] bg-[#ece3f7] p-4 text-sm font-medium text-[#1f2430]">
             Latency: {health.latency}
           </div>
-          <div className={`rounded-2xl border p-4 text-sm font-medium ${health.queue === 'Ready' ? 'border-[#d9c79a] bg-[#f2ead2] text-[#1f2430]' : 'border-[#d3b48c] bg-[#f5e4cf] text-[#1f2430]'}`}>
-            Queue: {health.queue}
+          <div className="rounded-2xl border border-[#d9c79a] bg-[#f2ead2] p-4 text-sm font-medium text-[#1f2430]">
+            Background jobs: {health.jobs}
           </div>
         </div>
       </article>

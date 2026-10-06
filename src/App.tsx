@@ -35,11 +35,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { api, apiBaseUrl, Artist, Category, configured, login, Song, Tag as TagModel, upload, uploadProfileImage, User } from './api';
-import { CatalogPage } from './pages/CatalogPage';
-import { MusicPage } from './pages/MusicPage';
 import { MusicWorkflowPage } from './pages/MusicWorkflowPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { UsersPage } from './pages/UsersPage';
 import { useAppDispatch, useAppSelector } from './store/hooks';
 import { setMe, setToken, signOut as clearAuth } from './store/authSlice';
 
@@ -181,10 +178,10 @@ export default function App() {
           </header>
           <div className={`grid gap-5 ${rightPanelOpen ? 'xl:grid-cols-[minmax(0,1fr)_270px]' : 'xl:grid-cols-[minmax(0,1fr)]'}`}>
             <div className="documentation-panel min-w-0">
-              {tab === 'users' && <UsersPage token={token} me={me} notify={setNotice} searchQuery={searchQuery} />}
-              {tab === 'music' && <MusicPage token={token} notify={setNotice} searchQuery={searchQuery} />}
+              {tab === 'users' && <UsersPanel token={token} me={me} notify={setNotice} searchQuery={searchQuery} />}
+              {tab === 'music' && <MusicPanel token={token} notify={setNotice} searchQuery={searchQuery} />}
               {tab === 'workflow' && <MusicWorkflowPage activeStepId={workflowStepId} onStepSelect={setWorkflowStepId} />}
-              {tab === 'catalog' && <CatalogPage searchQuery={searchQuery} section={catalogSection} onSectionChange={setCatalogSection} />}
+              {tab === 'catalog' && <CatalogPanel token={token} notify={setNotice} searchQuery={searchQuery} />}
               {tab === 'import' && <ImportPanel token={token} notify={setNotice} />}
               {tab === 'settings' && <SettingsPage me={me} token={token} notify={setNotice} onMeUpdate={(user) => { setMeState(user); dispatch(setMe(user)); }} />}
             </div>
@@ -407,6 +404,9 @@ function MusicPanel({ token, notify, searchQuery }: { token: string; notify: (no
   const [songs, setSongs] = useState<Song[]>([]);
   const [loading, setLoading] = useState(true);
   const [licenseSong, setLicenseSong] = useState<Song | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creatingSong, setCreatingSong] = useState(false);
+  const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -419,49 +419,160 @@ function MusicPanel({ token, notify, searchQuery }: { token: string; notify: (no
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    const title = String(data.get('title') || '').trim();
+    const artist = String(data.get('artist') || '').trim();
+    const language = String(data.get('language') || '').trim();
+    const genre = String(data.get('genre') || '').trim();
+    const yearText = String(data.get('year') || '').trim();
+    const durationText = String(data.get('duration') || '').trim();
+    const audioFile = data.get('audioFile');
+    const coverFile = data.get('coverFile');
+    const errors: Record<string, string> = {};
+    if (!title) errors.title = 'Enter a song title.';
+    else if (title.length > 200) errors.title = 'Title must be 200 characters or fewer.';
+    if (!artist) errors.artist = 'Select an artist.';
+    if (language.length < 2) errors.language = 'Enter a language (at least 2 characters).';
+    else if (language.length > 50) errors.language = 'Language must be 50 characters or fewer.';
+    if (genre.length > 100) errors.genre = 'Genre must be 100 characters or fewer.';
+    if (yearText && (!Number.isInteger(Number(yearText)) || Number(yearText) < 1900 || Number(yearText) > 2100)) errors.year = 'Enter a whole year between 1900 and 2100.';
+    if (durationText && (!Number.isInteger(Number(durationText)) || Number(durationText) < 0 || Number(durationText) > 86400)) errors.duration = 'Duration must be a whole number from 0 to 86400 seconds.';
+    if (!(audioFile instanceof File) || !audioFile.name.toLowerCase().endsWith('.mp3') || (audioFile.type && audioFile.type !== 'audio/mpeg')) {
+      errors.audioFile = 'Choose a valid MP3 audio file.';
+    }
+    if (!(coverFile instanceof File) || !['image/jpeg', 'image/png', 'image/webp'].includes(coverFile.type)) {
+      errors.coverFile = 'Choose a JPG, PNG, or WebP cover image.';
+    } else if (coverFile.size > 10 * 1024 * 1024) {
+      errors.coverFile = 'Cover image must be 10 MB or smaller.';
+    }
+    setCreateErrors(errors);
+    if (Object.keys(errors).length) return;
+
     const payload = {
-      title: String(data.get('title') || '').trim(),
-      artist: String(data.get('artist') || '').trim(),
-      album: String(data.get('album') || '').trim() || undefined,
-      language: String(data.get('language') || '').trim(),
+      title,
+      artist,
+      language,
       lyrics: String(data.get('lyrics') || '').trim() || undefined,
-      duration: Number(data.get('duration')) || undefined,
-      genre: String(data.get('genre') || '').trim() || undefined,
-      year: Number(data.get('year')) || undefined,
+      duration: durationText ? Number(durationText) : undefined,
+      genre: genre || undefined,
+      year: yearText ? Number(yearText) : undefined,
       trackNumber: Number(data.get('trackNumber')) || undefined,
       discNumber: Number(data.get('discNumber')) || undefined,
       format: String(data.get('format') || '').trim() || undefined,
       bitrate: Number(data.get('bitrate')) || undefined,
-      artwork: String(data.get('artwork') || '').trim() || undefined,
-      url: String(data.get('url') || '').trim() || undefined,
-      coverUrl: String(data.get('coverUrl') || '').trim() || undefined,
       isFavorite: false,
       playCount: 0,
       dateAdded: Date.now(),
       categories: selectedValues(form, 'categories'),
       tags: selectedValues(form, 'tags'),
     };
+    setCreatingSong(true);
     try {
-      await api(token, '/admin/songs', { method: 'POST', body: JSON.stringify(payload) });
+      const created = await api<Song>(token, '/admin/songs', { method: 'POST', body: JSON.stringify(payload) });
+      try {
+        await upload(token, created.mongoId ?? created.id, 'cover', coverFile as File);
+        await upload(token, created.mongoId ?? created.id, 'audio', audioFile as File);
+      } catch (error) {
+        await load();
+        setShowCreateForm(false);
+        notify({ tone: 'error', text: `Song created, but a file upload failed: ${messageOf(error)}. Retry it from the song row.` });
+        return;
+      }
       form.reset();
+      setCreateErrors({});
+      setShowCreateForm(false);
       await load();
-      notify({ tone: 'success', text: 'Song created. Upload audio and a cover to begin processing.' });
+      notify({ tone: 'success', text: 'Song created and MP3 uploaded for processing.' });
     } catch (error) {
       notify({ tone: 'error', text: messageOf(error) });
+    } finally {
+      setCreatingSong(false);
     }
   }
   async function uploadMedia(songId: string, file: File | undefined, kind: 'audio' | 'cover') {
     if (!file) { notify({ tone: 'error', text: `Choose a ${kind} file first.` }); return; }
+    if (kind === 'audio' && !file.name.toLowerCase().endsWith('.mp3')) { notify({ tone: 'error', text: 'Choose an MP3 audio file.' }); return; }
     try { const queued = await upload(token, songId, kind, file); notify({ tone: 'success', text: `${kind === 'audio' ? 'Audio' : 'Cover'} received and queued as job ${queued.jobId}.` }); await load(); }
     catch (error) { notify({ tone: 'error', text: messageOf(error) }); }
   }
   async function publish(song: Song) {
-    try { await api(token, `/admin/songs/${song.id}/publish`, { method: 'POST', body: JSON.stringify({ published: !song.published }) }); await load(); notify({ tone: 'success', text: `${song.title} is now ${song.published ? 'unpublished' : 'published'}.` }); }
+    try { await api(token, `/admin/songs/${song.mongoId ?? song.id}/publish`, { method: 'POST', body: JSON.stringify({ published: !song.published }) }); await load(); notify({ tone: 'success', text: `${song.title} is now ${song.published ? 'unpublished' : 'published'}.` }); }
     catch (error) { notify({ tone: 'error', text: messageOf(error) }); }
   }
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const visibleSongs = normalizedQuery ? songs.filter((song) => [song.title, song.language, song.processing, song.published ? 'published' : 'unpublished'].some((value) => value.toLowerCase().includes(normalizedQuery))) : songs;
-  return <section className="space-y-5"><div className="grid gap-4 sm:grid-cols-3"><Metric label="Songs" value={songs.length} icon={LibraryBig} tone="violet" /><Metric label="Ready to publish" value={songs.filter((song) => song.processing === 'ready').length} icon={Sparkles} tone="cyan" /><Metric label="Published" value={songs.filter((song) => song.published).length} icon={Disc3} tone="emerald" /></div><section className="rounded-3xl border border-white/[0.09] bg-slate-900/50 p-5 shadow-2xl shadow-black/10 backdrop-blur sm:p-6"><div className="mb-6 flex items-start gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-400/15 text-violet-300"><Plus size={20} /></span><div><h2 className="font-bold text-white">Create a song</h2><p className="mt-1 text-sm text-slate-500">Add metadata first. The actual audio and cover file are uploaded in the section below after you save the record.</p></div></div><form className="space-y-5" onSubmit={createSong}><div className="grid gap-4 md:grid-cols-3"><Field label="Song title"><input className={inputClass} name="title" placeholder="Song name" required /></Field><Field label="Language"><input className={inputClass} name="language" placeholder="en" required /></Field><Field label="Artist"><select className={inputClass} name="artist" required defaultValue=""><option value="" disabled>Select artist</option>{artists.map((artist) => <option value={artist.id} key={artist.id}>{artist.name}</option>)}</select></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Album"><input className={inputClass} name="album" placeholder="Album name or id" /></Field><Field label="Genre"><input className={inputClass} name="genre" placeholder="Hip-Hop" /></Field><Field label="Year"><input className={inputClass} type="number" name="year" min={1900} max={2100} placeholder="2024" /></Field></div><div className="grid gap-4 md:grid-cols-4"><Field label="Duration (sec)"><input className={inputClass} type="number" name="duration" min={0} placeholder="173" /></Field><Field label="Track #"><input className={inputClass} type="number" name="trackNumber" min={1} placeholder="1" /></Field><Field label="Disc #"><input className={inputClass} type="number" name="discNumber" min={1} placeholder="1" /></Field><Field label="Bitrate (kbps)"><input className={inputClass} type="number" name="bitrate" min={1} placeholder="320" /></Field></div><div className="grid gap-4 md:grid-cols-2"><Field label="Audio URL (optional)"><input className={inputClass} name="url" type="url" placeholder="https://example.com/song.mp3" /><Hint>Remote source URL only. Actual audio file is uploaded below in the music processing section.</Hint></Field><Field label="Cover URL (optional)"><input className={inputClass} name="coverUrl" type="url" placeholder="https://res.cloudinary.com/.../cover.jpg" /><Hint>Optional external cover link for metadata. Actual cover file is uploaded below.</Hint></Field></div><div className="grid gap-4 md:grid-cols-2"><Field label="Artwork URL (optional)"><input className={inputClass} name="artwork" type="url" placeholder="https://example.com/cover.jpg" /><Hint>Used as a remote artwork reference when you want to keep the image URL in metadata.</Hint></Field><Field label="Format"><input className={inputClass} name="format" placeholder="mp3" /></Field></div><div className="grid gap-4 md:grid-cols-2"><Field label="Categories"><CustomMultiSelect name="categories" placeholder="Select one or more categories" helper="Select one or more categories." items={categories.map((category) => ({ value: category.id, label: category.name }))} /></Field><Field label="Tags"><CustomMultiSelect name="tags" placeholder="Select tags" helper="Use tags for richer search results." items={tags.map((tag) => ({ value: tag.id, label: tag.name }))} /></Field></div><Field label="Lyrics"><textarea className={`${inputClass} min-h-28 resize-y`} name="lyrics" placeholder="Optional lyrics…" /></Field><button className={primary}><Plus size={17} />Create song</button></form></section><section className="overflow-hidden rounded-3xl border border-white/[0.09] bg-slate-900/50 shadow-2xl shadow-black/10 backdrop-blur"><div className="flex flex-col gap-4 border-b border-white/[0.08] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="text-lg font-bold text-white">Music processing</h2><p className="mt-1 text-sm text-slate-500">{normalizedQuery ? `${visibleSongs.length} result${visibleSongs.length === 1 ? '' : 's'} for “${searchQuery.trim()}”` : 'Audio is processed in the background after it is uploaded.'}</p></div><button className={secondary} disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'animate-spin' : ''} size={16} />Refresh</button></div>{loading ? <LoadingRows /> : visibleSongs.length === 0 ? <Empty title={normalizedQuery ? 'No matching songs' : 'Your library is empty'} text={normalizedQuery ? 'Try a different title, language, processing state, or publishing state.' : 'Create a song above after adding artists and categories in Catalog.'} icon={Music2} /> : <div className="divide-y divide-white/[0.07]">{visibleSongs.map((song) => <SongRow key={song.id} song={song} onUpload={uploadMedia} onLicense={setLicenseSong} onPublish={publish} />)}</div>}</section>{licenseSong && <LicenseDialog token={token} song={licenseSong} onClose={() => setLicenseSong(null)} onSaved={async () => { setLicenseSong(null); await load(); notify({ tone: 'success', text: 'Music rights and availability have been saved.' }); }} onError={(text) => notify({ tone: 'error', text })} />}</section>;
+  return (
+    <section className="space-y-5">
+      {showCreateForm ? (
+        <section className="rounded-3xl border border-white/[0.09] bg-slate-900/50 p-5 shadow-2xl shadow-black/10 backdrop-blur sm:p-6">
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-bold text-white">Create a song</h2>
+              <p className="mt-1 text-sm text-slate-500">Add track details, cover image, and its MP3 file.</p>
+            </div>
+            <button type="button" className={secondary} onClick={() => { setShowCreateForm(false); setCreateErrors({}); }}>Cancel</button>
+          </div>
+          <form className="space-y-5" onSubmit={(event) => void createSong(event)} noValidate>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Song title">
+                <input className={`${inputClass} ${createErrors.title ? 'border-rose-400' : ''}`} name="title" aria-invalid={Boolean(createErrors.title)} onChange={() => setCreateErrors((current) => ({ ...current, title: '' }))} placeholder="Song name" />
+                <FieldError>{createErrors.title}</FieldError>
+              </Field>
+              <Field label="Language">
+                <input className={`${inputClass} ${createErrors.language ? 'border-rose-400' : ''}`} name="language" defaultValue="en" aria-invalid={Boolean(createErrors.language)} onChange={() => setCreateErrors((current) => ({ ...current, language: '' }))} placeholder="e.g. English" />
+                <FieldError>{createErrors.language}</FieldError>
+              </Field>
+              <Field label="Artist">
+                <select className={`${inputClass} ${createErrors.artist ? 'border-rose-400' : ''}`} name="artist" defaultValue="" aria-invalid={Boolean(createErrors.artist)} onChange={() => setCreateErrors((current) => ({ ...current, artist: '' }))}>
+                  <option value="">Select artist</option>{artists.map((artist) => <option value={artist.mongoId ?? artist.id} key={artist.id}>{artist.name}</option>)}
+                </select>
+                <FieldError>{createErrors.artist || (!artists.length ? 'Add an artist in Catalog before creating a song.' : '')}</FieldError>
+              </Field>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Genre"><input className={`${inputClass} ${createErrors.genre ? 'border-rose-400' : ''}`} name="genre" aria-invalid={Boolean(createErrors.genre)} onChange={() => setCreateErrors((current) => ({ ...current, genre: '' }))} placeholder="Genre (optional)" /><FieldError>{createErrors.genre}</FieldError></Field>
+              <Field label="Year"><input className={`${inputClass} ${createErrors.year ? 'border-rose-400' : ''}`} type="number" name="year" min={1900} max={2100} aria-invalid={Boolean(createErrors.year)} onChange={() => setCreateErrors((current) => ({ ...current, year: '' }))} placeholder="Year (optional)" /><FieldError>{createErrors.year}</FieldError></Field>
+            </div>
+            <Field label="MP3 audio file">
+              <input className={`${inputClass} ${createErrors.audioFile ? 'border-rose-400' : ''}`} type="file" name="audioFile" accept="audio/mpeg,.mp3" aria-invalid={Boolean(createErrors.audioFile)} onChange={() => setCreateErrors((current) => ({ ...current, audioFile: '' }))} />
+              <FieldError>{createErrors.audioFile}</FieldError>
+            </Field>
+            <Field label="Cover image">
+              <input className={`${inputClass} ${createErrors.coverFile ? 'border-rose-400' : ''}`} type="file" name="coverFile" accept="image/jpeg,image/png,image/webp" aria-invalid={Boolean(createErrors.coverFile)} onChange={() => setCreateErrors((current) => ({ ...current, coverFile: '' }))} />
+              <Hint>JPG, PNG, or WebP. Maximum size: 10 MB.</Hint>
+              <FieldError>{createErrors.coverFile}</FieldError>
+            </Field>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Duration (seconds, optional)"><input className={`${inputClass} ${createErrors.duration ? 'border-rose-400' : ''}`} type="number" name="duration" min={0} max={86400} aria-invalid={Boolean(createErrors.duration)} onChange={() => setCreateErrors((current) => ({ ...current, duration: '' }))} placeholder="e.g. 210" /><FieldError>{createErrors.duration}</FieldError></Field>
+              <Field label="Format"><input className={inputClass} name="format" value="mp3" readOnly /></Field>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Categories (optional)"><CustomMultiSelect name="categories" placeholder="Select categories" helper="Choose from your saved categories." items={categories.map((category) => ({ value: category.mongoId ?? category.id, label: category.name }))} /></Field>
+              <Field label="Tags (optional)"><CustomMultiSelect name="tags" placeholder="Select tags" helper="Choose from your saved tags." items={tags.map((tag) => ({ value: tag.mongoId ?? tag.id, label: tag.name }))} /></Field>
+            </div>
+            <button className={primary} disabled={creatingSong || !artists.length}>
+              {creatingSong ? <LoaderCircle className="animate-spin" size={16} /> : <UploadCloud size={16} />}
+              {creatingSong ? 'Creating and uploading…' : 'Create song and upload MP3'}
+            </button>
+          </form>
+        </section>
+      ) : (
+        <section className="overflow-hidden rounded-3xl border border-white/[0.09] bg-slate-900/50 shadow-2xl shadow-black/10 backdrop-blur">
+          <div className="flex flex-col gap-4 border-b border-white/[0.08] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div>
+              <h2 className="text-lg font-bold text-white">Music processing</h2>
+              <p className="mt-1 text-sm text-slate-500">{normalizedQuery ? `${visibleSongs.length} result${visibleSongs.length === 1 ? '' : 's'} for “${searchQuery.trim()}”` : 'Songs from your library.'}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" className={secondary} disabled={loading} onClick={() => void load()}><RefreshCw className={loading ? 'animate-spin' : ''} size={16} />Refresh</button>
+              <button type="button" className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-navy-dark hover:bg-gold-dark" aria-label="Add song" title="Add song" onClick={() => setShowCreateForm(true)}><Plus size={20} /></button>
+            </div>
+          </div>
+          {loading ? <LoadingRows /> : visibleSongs.length === 0 ? <Empty title={normalizedQuery ? 'No matching songs' : 'Your library is empty'} text={normalizedQuery ? 'Try a different title, language, processing state, or publishing state.' : 'Use the + button to create a song.'} icon={Music2} /> : <div className="divide-y divide-white/[0.07]">{visibleSongs.map((song) => <SongRow key={song.id} song={song} onUpload={uploadMedia} onLicense={setLicenseSong} onPublish={publish} />)}</div>}
+        </section>
+      )}
+      {licenseSong && <LicenseDialog token={token} song={licenseSong} onClose={() => setLicenseSong(null)} onSaved={async () => { setLicenseSong(null); await load(); notify({ tone: 'success', text: 'Music rights and availability have been saved.' }); }} onError={(text) => notify({ tone: 'error', text })} />}
+    </section>
+  );
 }
 
 function ImportPanel({ token, notify }: { token: string; notify: (notice: Notice) => void }) {
@@ -564,12 +675,16 @@ function ImportPanel({ token, notify }: { token: string; notify: (notice: Notice
               <article key={`${item.provider}-${item.externalSongId}`} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
                   <div className="flex min-w-0 flex-1 gap-4">
-                    <img
-                      src={item.artwork || item.coverUrl || 'https://placehold.co/120x120/1f2937/ffffff?text=Music'}
-                      alt={item.title || 'Album cover'}
-                      className="h-20 w-20 rounded-xl object-cover ring-1 ring-white/10"
-                      onError={(event) => { event.currentTarget.src = 'https://placehold.co/120x120/1f2937/ffffff?text=Music'; }}
-                    />
+                    {item.artwork || item.coverUrl ? (
+                      <img
+                        src={item.artwork || item.coverUrl}
+                        alt={item.title || 'Album cover'}
+                        className="h-20 w-20 rounded-xl object-cover ring-1 ring-white/10"
+                        onError={(event) => { event.currentTarget.hidden = true; }}
+                      />
+                    ) : (
+                      <span className="grid h-20 w-20 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-slate-500"><Music2 size={22} /></span>
+                    )}
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="truncate text-lg font-bold text-white">{item.title || 'Untitled track'}</h3>
@@ -608,10 +723,10 @@ function ImportPanel({ token, notify }: { token: string; notify: (notice: Notice
 
 function SongRow({ song, onUpload, onLicense, onPublish }: { song: Song; onUpload: (id: string, file: File | undefined, kind: 'audio' | 'cover') => Promise<void>; onLicense: (song: Song) => void; onPublish: (song: Song) => Promise<void> }) {
   const [audio, setAudio] = useState<File>(); const [cover, setCover] = useState<File>(); const [busy, setBusy] = useState<'audio' | 'cover' | 'publish' | null>(null);
-  async function run(kind: 'audio' | 'cover') { setBusy(kind); try { await onUpload(song.id, kind === 'audio' ? audio : cover, kind); } finally { setBusy(null); } }
+  async function run(kind: 'audio' | 'cover') { setBusy(kind); try { await onUpload(song.mongoId ?? song.id, kind === 'audio' ? audio : cover, kind); } finally { setBusy(null); } }
   async function publish() { setBusy('publish'); try { await onPublish(song); } finally { setBusy(null); } }
   const qualities = song.audio?.map((item) => item.quality).join(' · ');
-  return <article className="px-5 py-5 sm:px-6"><div className="flex flex-col gap-5 xl:flex-row xl:items-start"><div className="flex min-w-0 flex-1 gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-400/25 to-cyan-400/15 text-violet-200"><Music2 size={20} /></span><div className="min-w-0"><h3 className="truncate font-bold text-white">{song.title}</h3><p className="mt-1 text-sm text-slate-500">{song.language.toUpperCase()} · {qualities || 'No processed audio yet'}</p><div className="mt-3 flex flex-wrap gap-2"><ProcessingBadge state={song.processing} />{song.published && <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-bold text-emerald-200">Published</span>}</div></div></div><div className="grid gap-3 sm:grid-cols-2 xl:w-[620px]"><UploadControl label="Source audio" accept="audio/mpeg,audio/wav,audio/flac,audio/mp4" file={audio} onChange={setAudio} onUpload={() => void run('audio')} busy={busy === 'audio'} /><UploadControl label="Cover image" accept="image/jpeg,image/png,image/webp" file={cover} onChange={setCover} onUpload={() => void run('cover')} busy={busy === 'cover'} /></div><div className="flex flex-wrap gap-2 xl:w-48 xl:justify-end"><button className={secondary} onClick={() => onLicense(song)}><ShieldCheck size={15} />Rights</button>{song.processing === 'ready' && <button className={song.published ? danger : primary} disabled={busy === 'publish'} onClick={() => void publish()}>{busy === 'publish' && <LoaderCircle className="animate-spin" size={15} />}{song.published ? 'Unpublish' : 'Publish'}</button>}</div></div></article>;
+  return <article className="px-5 py-5 sm:px-6"><div className="flex flex-col gap-5 xl:flex-row xl:items-start"><div className="flex min-w-0 flex-1 gap-3">{song.coverUrl ? <img src={song.coverUrl} alt={`${song.title} cover`} className="h-11 w-11 shrink-0 rounded-2xl object-cover ring-1 ring-white/10" onError={(event) => { event.currentTarget.hidden = true; }} /> : <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-400/25 to-cyan-400/15 text-violet-200"><Music2 size={20} /></span>}<div className="min-w-0"><h3 className="truncate font-bold text-white">{song.title}</h3><p className="mt-1 text-sm text-slate-500">{song.language.toUpperCase()} · {qualities || 'No processed audio yet'}</p><div className="mt-3 flex flex-wrap gap-2"><ProcessingBadge state={song.processing} />{song.published && <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-bold text-emerald-200">Published</span>}</div></div></div><div className="grid gap-3 sm:grid-cols-2 xl:w-[620px]"><UploadControl label="Source MP3" accept="audio/mpeg,.mp3" file={audio} onChange={setAudio} onUpload={() => void run('audio')} busy={busy === 'audio'} /><UploadControl label="Cover image" accept="image/jpeg,image/png,image/webp" file={cover} onChange={setCover} onUpload={() => void run('cover')} busy={busy === 'cover'} /></div><div className="flex flex-wrap gap-2 xl:w-48 xl:justify-end"><button className={secondary} onClick={() => onLicense(song)}><ShieldCheck size={15} />Rights</button>{song.processing === 'ready' && <button className={song.published ? danger : primary} disabled={busy === 'publish'} onClick={() => void publish()}>{busy === 'publish' && <LoaderCircle className="animate-spin" size={15} />}{song.published ? 'Unpublish' : 'Publish'}</button>}</div></div></article>;
 }
 
 function UploadControl({ label, accept, file, onChange, onUpload, busy }: { label: string; accept: string; file?: File; onChange: (file: File | undefined) => void; onUpload: () => void; busy: boolean }) {
@@ -623,7 +738,7 @@ function LicenseDialog({ token, song, onClose, onSaved, onError }: { token: stri
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
     const form = new FormData(event.currentTarget);
-    try { const endsAt = new Date(`${String(form.get('endsAt'))}T23:59:59.999Z`); await api(token, `/admin/licenses/${song.id}`, { method: 'PUT', body: JSON.stringify({ holder: form.get('holder'), startsAt: new Date().toISOString(), endsAt: endsAt.toISOString(), streaming: true, offline: true, territories: [], enabled: true }) }); await onSaved(); }
+    try { const endsAt = new Date(`${String(form.get('endsAt'))}T23:59:59.999Z`); const songId = song.mongoId ?? song.id; await api(token, `/admin/licenses/${songId}`, { method: 'PUT', body: JSON.stringify({ song: songId, holder: form.get('holder'), startsAt: new Date().toISOString(), endsAt: endsAt.toISOString(), streaming: true, offline: true, territories: [], enabled: true }) }); await onSaved(); }
     catch (error) { onError(messageOf(error)); } finally { setBusy(false); }
   }
   return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="license-title"><form onSubmit={submit} className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl shadow-black/50"><div className="flex items-start gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-400/15 text-violet-300"><ShieldCheck size={20} /></span><div className="flex-1"><h2 id="license-title" className="font-bold text-white">Set music rights</h2><p className="mt-1 text-sm text-slate-500">{song.title} will be eligible for streaming and offline playback until this license expires.</p></div><button className="rounded-lg p-1 text-slate-400 hover:bg-white/10" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button></div><div className="mt-6 space-y-4"><Field label="Rights holder"><input className={inputClass} name="holder" placeholder="Label or rights owner" required /></Field><Field label="License expiry"><input className={inputClass} name="endsAt" type="date" min={new Date().toISOString().slice(0, 10)} defaultValue={new Date(Date.now() + 31536000000).toISOString().slice(0, 10)} required /></Field></div><div className="mt-7 flex justify-end gap-3"><button className={secondary} type="button" onClick={onClose}>Cancel</button><button className={primary} disabled={busy}>{busy && <LoaderCircle className="animate-spin" size={16} />}Save rights</button></div></form></div>;
@@ -753,6 +868,7 @@ function Metric({ label, value, icon: Icon, tone }: { label: string; value: numb
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block text-sm font-semibold text-slate-300"><span>{label}</span>{children}</label>; }
+function FieldError({ children }: { children?: string }) { return children ? <span className="mt-1 block text-xs font-medium text-rose-300" role="alert">{children}</span> : null; }
 function Hint({ children }: { children: ReactNode }) { return <p className="mt-1.5 text-xs leading-5 text-slate-500">{children}</p>; }
 function CustomMultiSelect({ name, items, placeholder, helper }: { name: string; items: { value: string; label: string }[]; placeholder: string; helper: string }) {
   const [open, setOpen] = useState(false);

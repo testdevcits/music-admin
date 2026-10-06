@@ -22,11 +22,11 @@ export type UserProfileUploadResponse = {
   role: 'user' | 'admin';
   createdAt: string;
 };
-export type Artist = { id: string; _id?: string; name: string };
-export type Category = { id: string; _id?: string; name: string; slug: string };
-export type Tag = { id: string; _id?: string; name: string; slug: string };
+export type Artist = { id: string; _id?: string; mongoId?: string; name: string };
+export type Category = { id: string; _id?: string; mongoId?: string; name: string; slug: string };
+export type Tag = { id: string; _id?: string; mongoId?: string; name: string; slug: string };
 export type Song = {
-  id: string; _id?: string;
+  id: string; _id?: string; mongoId?: string;
   title: string;
   artist: string;
   album?: string;
@@ -80,7 +80,7 @@ export async function login(email: string, password: string) {
 export async function upload(token: string, songId: string, kind: 'audio' | 'cover', file: File) {
   const response = await fetch(`${baseUrl}/admin/songs/${songId}/uploads`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type, 'X-Upload-Kind': kind },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': kind === 'audio' ? 'audio/mpeg' : file.type, 'X-Upload-Kind': kind },
     body: file,
   });
   const body = await response.json().catch(() => null);
