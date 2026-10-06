@@ -1,12 +1,12 @@
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 export const apiBaseUrl = baseUrl;
 
-export type User = { _id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
-export type Artist = { _id: string; name: string };
-export type Category = { _id: string; name: string; slug: string };
-export type Tag = { _id: string; name: string; slug: string };
+export type User = { id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
+export type Artist = { id: string; name: string };
+export type Category = { id: string; name: string; slug: string };
+export type Tag = { id: string; name: string; slug: string };
 export type Song = {
-  _id: string;
+  id: string;
   title: string;
   artist: string;
   album?: string;
@@ -74,5 +74,5 @@ export async function uploadProfileImage(token: string, file: File) {
   });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new ApiError(body?.error?.code || `Profile upload failed (${response.status})`);
-  return body as { _id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; createdAt: string };
+  return body as { id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; createdAt: string };
 }
