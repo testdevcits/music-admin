@@ -17,10 +17,16 @@ function readStoredImage(key: string) {
   return window.localStorage.getItem(key) || '';
 }
 
+function normalizeImageUrl(value: string | { url?: string; alt?: string; publicId?: string } | null | undefined) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value.url || '';
+}
+
 export function SettingsPage({ me, notify }: Props) {
   const [name, setName] = useState(me.name);
   const [email, setEmail] = useState(me.email);
-  const [profileImage, setProfileImage] = useState(readStoredImage(STORAGE_KEYS.profile));
+  const [profileImage, setProfileImage] = useState(() => normalizeImageUrl(me.image) || readStoredImage(STORAGE_KEYS.profile));
   const [logo, setLogo] = useState(readStoredImage(STORAGE_KEYS.logo));
   const [checking, setChecking] = useState(false);
   const [health, setHealth] = useState({
