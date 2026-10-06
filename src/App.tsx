@@ -81,11 +81,19 @@ function readStoredImage(key: string) {
   return window.localStorage.getItem(key) || '';
 }
 
-function resolveImageUrl(value?: string) {
+function resolveImageUrl(value?: string | { url?: string; alt?: string; publicId?: string } | null) {
   if (!value) return '';
-  if (value.startsWith('data:') || value.startsWith('http://') || value.startsWith('https://')) return value;
-  if (value.startsWith('/')) return `${apiBaseUrl}${value}`;
-  return value;
+  if (typeof value === 'string') {
+    if (value.startsWith('data:') || value.startsWith('http://') || value.startsWith('https://')) return value;
+    if (value.startsWith('/')) return `${apiBaseUrl}${value}`;
+    return value;
+  }
+  if (value.url) {
+    if (value.url.startsWith('data:') || value.url.startsWith('http://') || value.url.startsWith('https://')) return value.url;
+    if (value.url.startsWith('/')) return `${apiBaseUrl}${value.url}`;
+    return value.url;
+  }
+  return '';
 }
 
 function formatDate(value?: string) {
@@ -301,10 +309,14 @@ function SettingsPanel({ token, me, notify }: { token: string; me: User; notify:
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
+    console.log('[profile upload] selected file', { key, fileName: file.name, type: file.type, size: file.size });
+
     try {
       if (key === 'admin-profile-image') {
         const result = await uploadProfileImage(token, file);
         const uploadedUrl = resolveImageUrl(result.image);
+        console.log('[profile upload] success', { key, uploadedUrl, response: result });
+
         if (uploadedUrl) {
           window.localStorage.setItem(key, uploadedUrl);
           onSet(uploadedUrl);
@@ -312,14 +324,17 @@ function SettingsPanel({ token, me, notify }: { token: string; me: User; notify:
         }
         return;
       }
+
       reader.onload = () => {
         const result = String(reader.result || '');
+        console.log('[brand upload] local preview saved', { key, fileName: file.name, size: file.size });
         window.localStorage.setItem(key, result);
         onSet(result);
         notify({ tone: 'success', text: `${label} uploaded.` });
       };
       reader.readAsDataURL(file);
     } catch (error) {
+      console.error('[profile upload] failed', { key, error });
       notify({ tone: 'error', text: messageOf(error) });
     }
   }
@@ -327,11 +342,15 @@ function SettingsPanel({ token, me, notify }: { token: string; me: User; notify:
   const checkBackend = useCallback(async () => {
     setChecking(true);
     const started = performance.now();
+    console.log('[refresh] checking backend health');
+
     try {
-      await api(token, '/users/me');
+      const response = await api(token, '/users/me');
+      console.log('[refresh] backend health success', { response, latency: Math.round(performance.now() - started) });
       setHealth({ connected: true, latency: Math.round(performance.now() - started), checkedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
       notify({ tone: 'success', text: 'Backend connection check passed.' });
     } catch (error) {
+      console.error('[refresh] backend health failed', error);
       setHealth({ connected: false, latency: 0, checkedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
       notify({ tone: 'error', text: messageOf(error) });
     } finally {

@@ -1,7 +1,27 @@
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 export const apiBaseUrl = baseUrl;
 
-export type User = { id: string; _id?: string; name: string; email: string; image?: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
+export type UserImage = { url: string; alt?: string; publicId?: string };
+
+export type User = {
+  id: string;
+  _id?: string;
+  name: string;
+  email: string;
+  image?: string | UserImage | null;
+  role: 'user' | 'admin';
+  disabled?: boolean;
+  createdAt: string;
+};
+
+export type UserProfileUploadResponse = {
+  id: string;
+  name: string;
+  email: string;
+  image: UserImage | string;
+  role: 'user' | 'admin';
+  createdAt: string;
+};
 export type Artist = { id: string; _id?: string; name: string };
 export type Category = { id: string; _id?: string; name: string; slug: string };
 export type Tag = { id: string; _id?: string; name: string; slug: string };
@@ -36,11 +56,16 @@ export class ApiError extends Error {}
 export const configured = Boolean(baseUrl);
 
 export async function api<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const requestUrl = `${baseUrl}${path}`;
+  console.log('[api] request', { requestUrl, method: init.method || 'GET', headers: init.headers });
+
+  const response = await fetch(requestUrl, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
   });
   const body = response.status === 204 ? null : await response.json().catch(() => null);
+  console.log('[api] response', { requestUrl, status: response.status, body });
+
   if (!response.ok) throw new ApiError(body?.error?.code || `Request failed (${response.status})`);
   return body as T;
 }
@@ -64,12 +89,17 @@ export async function upload(token: string, songId: string, kind: 'audio' | 'cov
 }
 
 export async function uploadProfileImage(token: string, file: File) {
-  const response = await fetch(`${baseUrl}/users/me/avatar`, {
+  const url = `${baseUrl}/users/me/avatar`;
+  console.log('[avatar upload] start', { url, fileName: file.name, type: file.type, size: file.size });
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type || 'image/png' },
     body: file,
   });
   const body = await response.json().catch(() => null);
+  console.log('[avatar upload] response', { url, status: response.status, body });
+
   if (!response.ok) throw new ApiError(body?.error?.code || `Profile upload failed (${response.status})`);
-  return body as { image: string; name: string; email: string; role: 'user' | 'admin'; createdAt: string };
+  return body as UserProfileUploadResponse;
 }
