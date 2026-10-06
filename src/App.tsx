@@ -2,7 +2,9 @@ import { FormEvent, ReactNode, useCallback, useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   AudioLines,
+  Bell,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   Disc3,
@@ -13,10 +15,12 @@ import {
   LibraryBig,
   LoaderCircle,
   LogOut,
+  Menu,
   Music2,
   Plus,
   RefreshCw,
   ShieldCheck,
+  Search,
   Sparkles,
   Tag,
   UploadCloud,
@@ -29,11 +33,11 @@ type Tab = 'users' | 'music' | 'catalog';
 type Notice = { tone: 'success' | 'error' | 'info'; text: string };
 
 const tokenKey = 'music-platform-admin-token';
-const inputClass = 'mt-2 w-full rounded-xl border border-divider/70 bg-navy-dark/70 px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-primary focus:ring-4 focus:ring-primary/15';
+const inputClass = 'mt-2 w-full rounded-xl border border-border bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-gray focus:border-primary focus:ring-4 focus:ring-primary/15';
 const passwordInputClass = inputClass.replace('mt-2 ', '');
 const button = 'inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:opacity-50';
 const primary = `${button} bg-primary text-navy-dark shadow-[0_8px_24px_rgba(214,163,35,0.24)] hover:bg-gold-dark hover:text-white focus:ring-primary/25`;
-const secondary = `${button} border border-divider/40 bg-navy-dark/45 text-gold-soft hover:bg-navy-dark focus:ring-primary/15`;
+const secondary = `${button} border border-border bg-white text-navy hover:bg-navy-soft focus:ring-primary/15`;
 const danger = `${button} border border-danger/30 bg-danger/15 text-rose-200 hover:bg-danger/25 focus:ring-danger/20`;
 const pageCopy: Record<Tab, { eyebrow: string; title: string; description: string }> = {
   users: { eyebrow: 'Audience management', title: 'Users', description: 'Review accounts and control platform access.' },
@@ -81,35 +85,37 @@ export default function App() {
 
   const copy = pageCopy[tab];
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#080b14] text-slate-100 selection:bg-violet-400/30">
-      <div className="pointer-events-none fixed inset-x-0 top-0 -z-0 h-[32rem] bg-[radial-gradient(ellipse_at_top,_rgba(109,40,217,0.26),transparent_57%)]" />
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-[1580px]">
+    <main className="min-h-screen bg-surface text-ink selection:bg-band">
+      <AdminHeader active={tab} onChange={setTab} user={me} onSignOut={signOut} />
+      <div className="mx-auto flex max-w-[1680px]">
         <Sidebar active={tab} onChange={setTab} user={me} onSignOut={signOut} />
-        <div className="min-w-0 flex-1 px-4 pb-10 pt-4 sm:px-6 lg:px-10 lg:py-8">
+        <div className="min-w-0 flex-1 px-4 pb-12 pt-5 sm:px-7 lg:px-10 lg:pt-8">
           <MobileNav active={tab} onChange={setTab} onSignOut={signOut} />
-          <header className="mb-7 flex flex-col gap-5 border-b border-white/[0.08] pb-7 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-300">{copy.eyebrow}</p>
-              <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">{copy.title}</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">{copy.description}</p>
-            </div>
-            <div className="hidden items-center gap-3 sm:flex">
-              <Avatar name={me.name} />
-              <div className="text-right text-xs leading-5"><p className="font-semibold text-slate-200">{me.name}</p><p className="text-slate-500">Administrator</p></div>
-            </div>
+          <div className="mb-5 flex items-center gap-2 text-xs font-medium text-muted" aria-label="Breadcrumb">
+            <span>Administration</span><ChevronRight size={14} /><span className="text-navy">{copy.title}</span>
+          </div>
+          <header className="mb-7 border-b border-border pb-6">
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-gold-dark">{copy.eyebrow}</p>
+            <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">{copy.title}</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{copy.description}</p>
           </header>
           {notice && <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />}
-          {tab === 'users' && <UsersPanel token={token} me={me} notify={setNotice} />}
-          {tab === 'music' && <MusicPanel token={token} notify={setNotice} />}
-          {tab === 'catalog' && <CatalogPanel token={token} notify={setNotice} />}
+          <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_270px]">
+            <div className="documentation-panel min-w-0">
+              {tab === 'users' && <UsersPanel token={token} me={me} notify={setNotice} />}
+              {tab === 'music' && <MusicPanel token={token} notify={setNotice} />}
+              {tab === 'catalog' && <CatalogPanel token={token} notify={setNotice} />}
+            </div>
+            <ContextPanel tab={tab} />
+          </div>
         </div>
       </div>
     </main>
   );
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
-  return <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-violet-300 via-violet-400 to-cyan-300 text-slate-950 shadow-lg shadow-violet-950/40"><AudioLines size={21} strokeWidth={2.5} /></span>{!compact && <span><span className="block text-sm font-bold tracking-tight text-white">Music Platform</span><span className="block text-xs text-slate-500">Admin workspace</span></span>}</div>;
+function Brand({ compact = false, inverted = false }: { compact?: boolean; inverted?: boolean }) {
+  return <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-gold-soft via-primary to-gold-dark text-navy-dark shadow-sm"><AudioLines size={21} strokeWidth={2.5} /></span>{!compact && <span><span className={`block text-sm font-bold tracking-tight ${inverted ? 'text-white' : 'text-ink'}`}>Music Platform</span><span className={`block text-xs ${inverted ? 'text-slate-500' : 'text-muted'}`}>Admin workspace</span></span>}</div>;
 }
 
 function Avatar({ name }: { name: string }) {
@@ -134,7 +140,7 @@ function Login({ onLogin, initialError }: { onLogin: (token: string) => void; in
       onLogin(result.accessToken);
     } catch (error) { setMessage(messageOf(error)); } finally { setBusy(false); }
   }
-  return <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#080b14] px-5 py-10 text-slate-100"><div className="pointer-events-none absolute -left-20 top-[-12rem] h-[35rem] w-[35rem] rounded-full bg-violet-700/30 blur-3xl" /><div className="pointer-events-none absolute -bottom-28 right-[-8rem] h-[28rem] w-[28rem] rounded-full bg-cyan-500/15 blur-3xl" /><section className="relative w-full max-w-[460px] rounded-[2rem] border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-black/40 backdrop-blur sm:p-9"><Brand /><div className="mt-9"><p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-300">Secure workspace</p><h1 className="mt-2 text-3xl font-bold tracking-tight text-white">Welcome back</h1><p className="mt-2 text-sm leading-6 text-slate-400">Sign in with an administrator account to manage your music platform.</p></div><form className="mt-7 space-y-5" onSubmit={submit}><Field label="Email address"><input className={inputClass} name="email" type="email" autoComplete="username" placeholder="admin@example.com" required /></Field><div className="block text-sm font-semibold text-slate-300"><label htmlFor="login-password">Password</label><div className="relative mt-2"><input id="login-password" className={`${passwordInputClass} pr-12`} name="password" type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" placeholder="••••••••" required /><div className="absolute inset-y-0 right-1 flex items-center"><button className="grid h-9 w-9 place-items-center rounded-lg text-navy transition hover:bg-navy/15 hover:text-navy-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60" type="button" onClick={() => setPasswordVisible((visible) => !visible)} aria-label={passwordVisible ? 'Hide password' : 'Show password'} title={passwordVisible ? 'Hide password' : 'Show password'}>{passwordVisible ? <EyeOff size={19} strokeWidth={2.25} /> : <Eye size={19} strokeWidth={2.25} />}</button></div></div></div><button className={`${primary} w-full`} disabled={busy}>{busy ? <LoaderCircle className="animate-spin" size={17} /> : <ShieldCheck size={17} />}{busy ? 'Signing in…' : 'Sign in to dashboard'}</button></form>{message && <p className="mt-5 rounded-xl border border-rose-400/20 bg-rose-400/10 px-3.5 py-3 text-sm text-rose-200">{message}</p>}</section></main>;
+  return <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#080b14] px-5 py-10 text-slate-100"><div className="pointer-events-none absolute -left-20 top-[-12rem] h-[35rem] w-[35rem] rounded-full bg-violet-700/30 blur-3xl" /><div className="pointer-events-none absolute -bottom-28 right-[-8rem] h-[28rem] w-[28rem] rounded-full bg-cyan-500/15 blur-3xl" /><section className="relative w-full max-w-[460px] rounded-[2rem] border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-black/40 backdrop-blur sm:p-9"><Brand inverted /><div className="mt-9"><p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-300">Secure workspace</p><h1 className="mt-2 text-3xl font-bold tracking-tight text-white">Welcome back</h1><p className="mt-2 text-sm leading-6 text-slate-400">Sign in with an administrator account to manage your music platform.</p></div><form className="mt-7 space-y-5" onSubmit={submit}><Field label="Email address"><input className={inputClass} name="email" type="email" autoComplete="username" placeholder="admin@example.com" required /></Field><div className="block text-sm font-semibold text-slate-300"><label htmlFor="login-password">Password</label><div className="relative mt-2"><input id="login-password" className={`${passwordInputClass} pr-12`} name="password" type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" placeholder="••••••••" required /><div className="absolute inset-y-0 right-1 flex items-center"><button className="grid h-9 w-9 place-items-center rounded-lg text-navy transition hover:bg-navy/15 hover:text-navy-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60" type="button" onClick={() => setPasswordVisible((visible) => !visible)} aria-label={passwordVisible ? 'Hide password' : 'Show password'} title={passwordVisible ? 'Hide password' : 'Show password'}>{passwordVisible ? <EyeOff size={19} strokeWidth={2.25} /> : <Eye size={19} strokeWidth={2.25} />}</button></div></div></div><button className={`${primary} w-full`} disabled={busy}>{busy ? <LoaderCircle className="animate-spin" size={17} /> : <ShieldCheck size={17} />}{busy ? 'Signing in…' : 'Sign in to dashboard'}</button></form>{message && <p className="mt-5 rounded-xl border border-rose-400/20 bg-rose-400/10 px-3.5 py-3 text-sm text-rose-200">{message}</p>}</section></main>;
 }
 
 const navItems: { id: Tab; label: string; description: string; icon: LucideIcon }[] = [
@@ -143,12 +149,21 @@ const navItems: { id: Tab; label: string; description: string; icon: LucideIcon 
   { id: 'catalog', label: 'Catalog', description: 'Artists, categories, tags', icon: FolderTree },
 ];
 
+function AdminHeader({ active, onChange, user, onSignOut }: { active: Tab; onChange: (tab: Tab) => void; user: User; onSignOut: () => void }) {
+  return <><div className="hidden h-8 bg-blackbar px-5 text-xs text-white sm:block"><div className="mx-auto flex h-full max-w-[1680px] items-center justify-end gap-5"><span>Music Platform administration</span><button className="inline-flex items-center gap-1 hover:text-gold-soft">Preferences <ChevronDown size={12} /></button><button className="hover:text-gold-soft">Support</button></div></div><header className="sticky top-0 z-30 border-b border-border bg-white/95 shadow-sm backdrop-blur"><div className="mx-auto flex h-16 max-w-[1680px] items-center gap-5 px-4 sm:px-6"><Brand /><nav className="hidden h-full items-center gap-1 md:flex" aria-label="Primary navigation">{navItems.map(({ id, label }) => <button key={id} onClick={() => onChange(id)} className={`h-full border-b-2 px-3 text-sm font-semibold transition ${active === id ? 'border-primary text-navy' : 'border-transparent text-muted hover:border-gold-soft hover:text-navy'}`}>{label}</button>)}</nav><div className="ml-auto hidden max-w-xs flex-1 items-center md:flex"><label className="relative w-full"><span className="sr-only">Search this dashboard</span><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={17} /><input className="w-full rounded-lg border border-divider bg-surface-soft py-2 pl-9 pr-3 text-sm text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="Search this dashboard" /></label></div><button className="hidden rounded-lg p-2 text-muted hover:bg-band hover:text-navy sm:grid sm:place-items-center" title="Notifications" aria-label="Notifications"><Bell size={18} /></button><button className="hidden items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-soft sm:flex" onClick={onSignOut} title="Sign out"><Avatar name={user.name} /><span className="hidden xl:block"><span className="block text-xs font-bold text-ink">{user.name}</span><span className="block text-[11px] text-muted">Sign out</span></span></button></div></header></>;
+}
+
 function Sidebar({ active, onChange, user, onSignOut }: { active: Tab; onChange: (tab: Tab) => void; user: User; onSignOut: () => void }) {
-  return <aside className="sticky top-0 hidden h-screen w-[270px] shrink-0 flex-col border-r border-white/[0.08] bg-slate-950/35 px-4 py-7 backdrop-blur-xl lg:flex"><Brand /><p className="mt-10 px-3 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Management</p><nav className="mt-3 space-y-1.5" aria-label="Dashboard navigation">{navItems.map(({ id, label, description, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${active === id ? 'bg-violet-400/15 text-white shadow-[inset_0_0_0_1px_rgba(196,181,253,.12)]' : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'}`}><span className={`grid h-9 w-9 place-items-center rounded-xl transition ${active === id ? 'bg-violet-400 text-slate-950' : 'bg-white/[0.06] text-slate-400 group-hover:text-violet-200'}`}><Icon size={18} /></span><span><span className="block text-sm font-semibold">{label}</span><span className="mt-0.5 block text-xs text-slate-500">{description}</span></span>{active === id && <ChevronRight className="ml-auto text-violet-300" size={16} />}</button>)}</nav><div className="mt-auto rounded-2xl border border-white/[0.08] bg-white/[0.035] p-3"><div className="flex items-center gap-3 px-1 py-2"><Avatar name={user.name} /><span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-200">{user.name}</span><span className="block truncate text-xs text-slate-500">{user.email}</span></span></div><button className={`${secondary} mt-2 w-full`} onClick={onSignOut}><LogOut size={16} />Sign out</button></div></aside>;
+  return <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-64 shrink-0 flex-col border-r border-border bg-white px-4 py-6 lg:flex"><p className="px-3 text-[11px] font-bold uppercase tracking-[0.16em] text-brown">Music management</p><nav className="mt-3 space-y-1" aria-label="Dashboard navigation">{navItems.map(({ id, label, description, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`group flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${active === id ? 'bg-navy-soft text-navy shadow-[inset_3px_0_0_#D6A323]' : 'text-muted hover:bg-surface-soft hover:text-navy'}`}><span className={`grid h-8 w-8 place-items-center rounded-lg ${active === id ? 'bg-band text-navy' : 'text-brown group-hover:bg-gold-soft group-hover:text-navy'}`}><Icon size={17} /></span><span className="min-w-0"><span className="block text-sm font-bold">{label}</span><span className="mt-0.5 block truncate text-xs text-muted">{description}</span></span>{active === id && <ChevronRight className="ml-auto text-navy" size={16} />}</button>)}</nav><div className="mt-8 border-t border-border pt-6"><p className="px-3 text-[11px] font-bold uppercase tracking-[0.16em] text-brown">Workspace</p><button className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-muted hover:bg-surface-soft hover:text-navy"><ShieldCheck size={17} className="text-brown" />Platform policies</button></div><div className="mt-auto rounded-xl border border-border bg-surface-soft p-3"><div className="flex items-center gap-3"><Avatar name={user.name} /><span className="min-w-0"><span className="block truncate text-sm font-bold text-ink">{user.name}</span><span className="block truncate text-xs text-muted">{user.email}</span></span></div><button className={`${secondary} mt-3 w-full`} onClick={onSignOut}><LogOut size={16} />Sign out</button></div></aside>;
 }
 
 function MobileNav({ active, onChange, onSignOut }: { active: Tab; onChange: (tab: Tab) => void; onSignOut: () => void }) {
-  return <div className="mb-7 flex items-center gap-2 border-b border-white/[0.08] pb-4 lg:hidden"><Brand compact /><div className="ml-auto flex items-center gap-1 overflow-x-auto">{navItems.map(({ id, label, icon: Icon }) => <button key={id} title={label} onClick={() => onChange(id)} className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl transition ${active === id ? 'bg-violet-400 text-slate-950' : 'bg-white/[0.06] text-slate-400'}`}><Icon size={17} /></button>)}<button title="Sign out" onClick={onSignOut} className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-slate-400"><LogOut size={17} /></button></div></div>;
+  return <div className="mb-5 flex items-center gap-2 border-b border-border pb-4 lg:hidden"><button className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-white text-navy" aria-label="Dashboard sections"><Menu size={19} /></button><div className="hide-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto">{navItems.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${active === id ? 'bg-navy text-white' : 'bg-white text-muted hover:bg-band hover:text-navy'}`}><Icon size={16} />{label}</button>)}</div><button title="Sign out" onClick={onSignOut} className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-white text-navy"><LogOut size={17} /></button></div>;
+}
+
+function ContextPanel({ tab }: { tab: Tab }) {
+  const sections: Record<Tab, string[]> = { users: ['User accounts', 'Access controls', 'Account status'], music: ['Create a song', 'Audio processing', 'Rights and publishing'], catalog: ['Artists', 'Categories', 'Tags'] };
+  return <aside className="hidden border-l border-border pl-6 xl:block"><div className="sticky top-24"><div className="flex items-center justify-between"><h2 className="text-base font-bold text-ink">On this page</h2><button className="text-muted hover:text-navy" aria-label="Page options"><Menu size={17} /></button></div><nav className="mt-3 border-l-2 border-divider pl-3" aria-label="Page sections">{sections[tab].map((section, index) => <a key={section} href={`#${section.toLowerCase().replaceAll(' ', '-')}`} className={`block py-1.5 text-sm ${index === 0 ? 'font-bold text-navy' : 'text-muted hover:text-navy'}`}>{section}</a>)}</nav><div className="mt-8 border-t border-border pt-6"><h2 className="text-base font-bold text-ink">Recommended tasks</h2><div className="mt-3 rounded-xl border border-border bg-white p-4"><p className="text-sm font-bold text-ink">Get your library ready</p><p className="mt-1 text-xs leading-5 text-muted">Create catalog records, add a song, then upload audio when background processing is enabled.</p><button className="mt-3 text-sm font-bold text-navy hover:text-gold-dark">View music workflow <ChevronRight className="inline" size={15} /></button></div></div></div></aside>;
 }
 
 function NoticeBanner({ notice, onDismiss }: { notice: Notice; onDismiss: () => void }) {

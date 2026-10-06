@@ -31,3 +31,18 @@
   button, input, select, textarea { font: inherit; }
   button:not(:disabled), input[type='file'] { cursor: pointer; }
 }
+
+/* The signed-in workspace uses a documentation layout with light reading surfaces. */
+.documentation-panel [class~="bg-slate-900/50"] { background-color: #ffffff !important; }
+.documentation-panel [class~="bg-slate-950/35"] { background-color: #fbfaf7 !important; }
+.documentation-panel [class~="border-white/[0.09]"],
+.documentation-panel [class~="border-white/[0.08]"],
+.documentation-panel [class~="border-white/15"] { border-color: #e4ddcf !important; }
+.documentation-panel [class~="divide-white/[0.07]"] > :not([hidden]) ~ :not([hidden]) { border-color: #e4ddcf !important; }
+.documentation-panel [class~="text-white"],
+.documentation-panel [class~="text-slate-100"],
+.documentation-panel [class~="text-slate-200"],
+.documentation-panel [class~="text-slate-300"] { color: #1f2430 !important; }
+.documentation-panel [class~="text-slate-400"],
+.documentation-panel [class~="text-slate-500"] { color: #6f7480 !important; }
+.documentation-panel [class~="bg-white/[0.04]"] { background-color: #fff4d6 !important; }
