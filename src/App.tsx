@@ -115,6 +115,8 @@ export default function App() {
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   const signOut = useCallback(() => {
+    window.localStorage.removeItem('admin-profile-image');
+    window.localStorage.removeItem('admin-brand-logo');
     dispatch(clearAuth());
     setTokenState('');
     setMeState(null);
