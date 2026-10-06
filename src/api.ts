@@ -1,6 +1,6 @@
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-export type User = { _id: string; name: string; email: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
+export type User = { _id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
 export type Artist = { _id: string; name: string };
 export type Category = { _id: string; name: string; slug: string };
 export type Tag = { _id: string; name: string; slug: string };
