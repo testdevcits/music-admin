@@ -1,16 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { User } from '../api';
+import { api, type User, uploadProfileImage } from '../api';
 
 type Props = {
   me: User;
+  token: string;
   notify: (notice: { tone: 'success' | 'error' | 'info'; text: string }) => void;
+  onMeUpdate: (user: User) => void;
 };
 
-const STORAGE_KEYS = {
-  profile: 'admin-profile-image',
-  logo: 'admin-brand-logo',
-};
+const STORAGE_KEYS = { logo: 'admin-brand-logo' };
 
 function readStoredImage(key: string) {
   if (typeof window === 'undefined') return '';
@@ -23,10 +22,10 @@ function normalizeImageUrl(value: string | { url?: string; alt?: string; publicI
   return value.url || '';
 }
 
-export function SettingsPage({ me, notify }: Props) {
+export function SettingsPage({ me, token, notify, onMeUpdate }: Props) {
   const [name, setName] = useState(me.name);
   const [email, setEmail] = useState(me.email);
-  const [profileImage, setProfileImage] = useState(() => normalizeImageUrl(me.image) || readStoredImage(STORAGE_KEYS.profile));
+  const [profileImage, setProfileImage] = useState(() => normalizeImageUrl(me.image));
   const [logo, setLogo] = useState(readStoredImage(STORAGE_KEYS.logo));
   const [checking, setChecking] = useState(false);
   const [health, setHealth] = useState({
@@ -40,20 +39,37 @@ export function SettingsPage({ me, notify }: Props) {
     notify({ tone: 'success', text: 'Profile details updated successfully.' });
   };
 
-  const handleImageUpload = (event: ChangeEvent<HTMLInputElement>, key: 'profile' | 'logo') => {
+  useEffect(() => {
+    setProfileImage(normalizeImageUrl(me.image));
+  }, [me.image]);
+
+  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>, key: 'profile' | 'logo') => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    if (key === 'profile') {
+      try {
+        await uploadProfileImage(token, file);
+        const current = await api<User>(token, '/users/me');
+        setProfileImage(normalizeImageUrl(current.image));
+        onMeUpdate(current);
+        notify({ tone: 'success', text: 'Profile image uploaded to Cloudinary and refreshed.' });
+      } catch (error) {
+        notify({ tone: 'error', text: error instanceof Error ? error.message.replaceAll('_', ' ') : 'Profile image upload failed.' });
+      }
+      event.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = () => {
       const value = String(reader.result || '');
       if (!value) return;
       window.localStorage.setItem(STORAGE_KEYS[key], value);
-      if (key === 'profile') setProfileImage(value);
       if (key === 'logo') setLogo(value);
       notify({
         tone: 'success',
-        text: key === 'profile' ? 'Profile image uploaded and saved.' : 'Logo uploaded and saved in this admin workspace.',
+        text: 'Logo uploaded and saved in this admin workspace.',
       });
     };
     reader.readAsDataURL(file);

@@ -186,7 +186,7 @@ export default function App() {
               {tab === 'workflow' && <MusicWorkflowPage activeStepId={workflowStepId} onStepSelect={setWorkflowStepId} />}
               {tab === 'catalog' && <CatalogPage searchQuery={searchQuery} section={catalogSection} onSectionChange={setCatalogSection} />}
               {tab === 'import' && <ImportPanel token={token} notify={setNotice} />}
-              {tab === 'settings' && <SettingsPage me={me} notify={setNotice} />}
+              {tab === 'settings' && <SettingsPage me={me} token={token} notify={setNotice} onMeUpdate={(user) => { setMeState(user); dispatch(setMe(user)); }} />}
             </div>
             {rightPanelOpen ? <ContextPanel tab={tab} section={catalogSection} onSectionSelect={setCatalogSection} onTabChange={changeTab} onToggle={() => setRightPanelOpen(false)} activeStepId={workflowStepId} onStepSelect={setWorkflowStepId} /> : <button type="button" onClick={() => setRightPanelOpen(true)} className="fixed right-4 top-28 z-30 hidden items-center gap-2 rounded-xl border border-border bg-white px-3 py-2 text-sm font-semibold text-navy shadow-lg xl:inline-flex" aria-label="Open page panel"><PanelRightOpen size={16} />Open</button>}
           </div>
@@ -239,12 +239,12 @@ const navItems: { id: Tab; label: string; description: string; icon: LucideIcon 
 ];
 
 function AdminHeader({ user, searchQuery, onSearch, onSignOut }: { user: User; searchQuery: string; onSearch: (query: string) => void; onSignOut: () => void }) {
-  const avatarUrl = resolveImageUrl(user.image) || readStoredImage('admin-profile-image');
+  const avatarUrl = resolveImageUrl(user.image);
   return <div className="relative z-30 shrink-0"><div className="hidden h-8 bg-blackbar px-5 text-xs text-white sm:block"><div className="mx-auto flex h-full max-w-[1680px] items-center justify-end gap-5"><span>Music Platform administration</span><button className="inline-flex items-center gap-1 hover:text-gold-soft">Preferences <ChevronDown size={12} /></button><button className="hover:text-gold-soft">Support</button></div></div><header className="border-b border-border bg-white/95 shadow-sm backdrop-blur"><div className="mx-auto flex h-16 max-w-[1680px] items-center gap-3 px-4 sm:gap-5 sm:px-6"><Brand /><div className="ml-auto hidden max-w-md flex-1 items-center md:flex"><label className="relative w-full"><span className="sr-only">Search the current dashboard section</span><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={17} /><input value={searchQuery} onChange={(event) => onSearch(event.target.value)} className="w-full rounded-lg border border-divider bg-surface-soft py-2 pl-9 pr-9 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="Search this section" />{searchQuery && <button type="button" onClick={() => onSearch('')} className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-muted hover:bg-band hover:text-navy" aria-label="Clear search"><X size={15} /></button>}</label></div><button className="hidden rounded-lg p-2 text-muted hover:bg-band hover:text-navy sm:grid sm:place-items-center" title="Notifications" aria-label="Notifications"><Bell size={18} /></button><span className="hidden h-8 w-px bg-border sm:block" /><button className="hidden items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface-soft sm:flex" onClick={onSignOut} title="Sign out"><Avatar name={user.name} imageUrl={avatarUrl} /><span className="hidden xl:block"><span className="block text-xs font-bold text-ink">{user.name}</span><span className="block max-w-36 truncate text-[11px] text-muted">{user.email}</span></span></button></div></header></div>;
 }
 
 function Sidebar({ active, onChange, user, onSignOut }: { active: Tab; onChange: (tab: Tab) => void; user: User; onSignOut: () => void }) {
-  const avatarUrl = resolveImageUrl(user.image) || readStoredImage('admin-profile-image');
+  const avatarUrl = resolveImageUrl(user.image);
   return <aside className="hidden h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-white px-4 py-6 lg:flex"><p className="px-3 text-[11px] font-bold uppercase tracking-[0.16em] text-brown">Music management</p><nav className="mt-3 space-y-1" aria-label="Dashboard navigation">{navItems.map(({ id, label, description, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`group flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${active === id ? 'bg-navy-soft text-navy shadow-[inset_3px_0_0_#D6A323]' : 'text-muted hover:bg-surface-soft hover:text-navy'}`}><span className={`grid h-8 w-8 place-items-center rounded-lg ${active === id ? 'bg-band text-navy' : 'text-brown group-hover:bg-gold-soft group-hover:text-navy'}`}><Icon size={17} /></span><span className="min-w-0"><span className="block text-sm font-bold">{label}</span><span className="mt-0.5 block truncate text-xs text-muted">{description}</span></span>{active === id && <ChevronRight className="ml-auto text-navy" size={16} />}</button>)}</nav><div className="mt-8 border-t border-border pt-6"><p className="px-3 text-[11px] font-bold uppercase tracking-[0.16em] text-brown">Workspace</p><button className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-muted hover:bg-surface-soft hover:text-navy"><ShieldCheck size={17} className="text-brown" />Platform policies</button></div><div className="mt-auto rounded-xl border border-border bg-surface-soft p-3"><div className="flex items-center gap-3"><Avatar name={user.name} imageUrl={avatarUrl} /><span className="min-w-0"><span className="block truncate text-sm font-bold text-ink">{user.name}</span><span className="block truncate text-xs text-muted">{user.email}</span></span></div><button className={`${secondary} mt-3 w-full`} onClick={onSignOut}><LogOut size={16} />Sign out</button></div></aside>;
 }
 
@@ -298,7 +298,7 @@ function ContextPanel({ tab, section, onSectionSelect, onTabChange, onToggle, ac
 
 
 function SettingsPanel({ token, me, notify }: { token: string; me: User; notify: (notice: Notice) => void }) {
-  const [profileImage, setProfileImage] = useState<string>(() => readStoredImage('admin-profile-image'));
+  const [profileImage, setProfileImage] = useState<string>(() => resolveImageUrl(me.image));
   const [brandLogo, setBrandLogo] = useState<string>(() => readStoredImage('admin-brand-logo'));
   const [name, setName] = useState(me.name);
   const [email, setEmail] = useState(me.email);
@@ -324,7 +324,6 @@ function SettingsPanel({ token, me, notify }: { token: string; me: User; notify:
         console.log('[profile upload] success', { key, uploadedUrl, response: result });
 
         if (uploadedUrl) {
-          window.localStorage.setItem(key, uploadedUrl);
           onSet(uploadedUrl);
           notify({ tone: 'success', text: `${label} uploaded.` });
         }
