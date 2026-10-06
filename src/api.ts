@@ -53,6 +53,7 @@ export type Song = {
   processing: 'pending' | 'processing' | 'ready' | 'failed';
   published: boolean;
   audio?: { quality: string }[];
+  audioUrl?: string;
 };
 export class ApiError extends Error {}
 export const configured = Boolean(baseUrl);
@@ -80,9 +81,32 @@ export async function login(email: string, password: string) {
 }
 
 export async function upload(token: string, songId: string, kind: 'audio' | 'cover', file: File) {
+  if (kind === 'audio') {
+    const signed = await api<{
+      cloudName: string; apiKey: string; timestamp: number; signature: string;
+      folder: string; publicId: string; overwrite: string;
+    }>(token, `/admin/songs/${songId}/cloudinary-signature?bytes=${file.size}`);
+    const body = new FormData();
+    body.append('file', file);
+    body.append('api_key', signed.apiKey);
+    body.append('timestamp', String(signed.timestamp));
+    body.append('signature', signed.signature);
+    body.append('folder', signed.folder);
+    body.append('public_id', signed.publicId);
+    body.append('overwrite', signed.overwrite);
+    const uploaded = await fetch(`https://api.cloudinary.com/v1_1/${signed.cloudName}/video/upload`, {
+      method: 'POST', body,
+    });
+    const uploadedBody = await uploaded.json().catch(() => null);
+    if (!uploaded.ok) throw new ApiError(uploadedBody?.error?.message || `Cloudinary upload failed (${uploaded.status})`);
+    return api<{ status: string; uploadId: string; jobId: string }>(token, `/admin/songs/${songId}/cloudinary-complete`, {
+      method: 'POST',
+      body: JSON.stringify({ publicId: uploadedBody.public_id, bytes: uploadedBody.bytes }),
+    });
+  }
   const response = await fetch(`${baseUrl}/admin/songs/${songId}/uploads`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': kind === 'audio' ? 'audio/mpeg' : file.type, 'X-Upload-Kind': kind },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type || 'image/jpeg', 'X-Upload-Kind': kind },
     body: file,
   });
   const body = await response.json().catch(() => null);
