@@ -1,4 +1,5 @@
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+export const apiBaseUrl = baseUrl;
 
 export type User = { _id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; disabled?: boolean; createdAt: string };
 export type Artist = { _id: string; name: string };
@@ -60,4 +61,18 @@ export async function upload(token: string, songId: string, kind: 'audio' | 'cov
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new ApiError(body?.error?.code || `Upload failed (${response.status})`);
   return body as { uploadId: string; jobId: string; status: string };
+}
+
+export async function uploadProfileImage(token: string, file: File) {
+  const response = await fetch(`${baseUrl}/users/me/avatar`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': file.type || 'image/png',
+    },
+    body: file,
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(body?.error?.code || `Profile upload failed (${response.status})`);
+  return body as { _id: string; name: string; email: string; image?: string; role: 'user' | 'admin'; createdAt: string };
 }

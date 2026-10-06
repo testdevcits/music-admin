@@ -32,7 +32,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { api, Artist, Category, configured, login, Song, Tag as TagModel, upload, User } from './api';
+import { api, apiBaseUrl, Artist, Category, configured, login, Song, Tag as TagModel, upload, uploadProfileImage, User } from './api';
 
 type Tab = 'users' | 'music' | 'catalog' | 'import' | 'settings';
 type Notice = { tone: 'success' | 'error' | 'info'; text: string };
@@ -68,6 +68,13 @@ function initials(name: string) {
 function readStoredImage(key: string) {
   if (typeof window === 'undefined') return '';
   return window.localStorage.getItem(key) || '';
+}
+
+function resolveImageUrl(value?: string) {
+  if (!value) return '';
+  if (value.startsWith('data:') || value.startsWith('http://') || value.startsWith('https://')) return value;
+  if (value.startsWith('/')) return `${apiBaseUrl}${value}`;
+  return value;
 }
 
 function formatDate(value?: string) {
@@ -230,17 +237,31 @@ function SettingsPanel({ token, me, notify }: { token: string; me: User; notify:
     notify({ tone: 'success', text: `${label} updated.` });
   }
 
-  function handleFileUpload(event: ChangeEvent<HTMLInputElement>, key: 'admin-profile-image' | 'admin-brand-logo', onSet: (value: string) => void, label: string) {
+  async function handleFileUpload(event: ChangeEvent<HTMLInputElement>, key: 'admin-profile-image' | 'admin-brand-logo', onSet: (value: string) => void, label: string) {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      window.localStorage.setItem(key, result);
-      onSet(result);
-      notify({ tone: 'success', text: `${label} uploaded.` });
-    };
-    reader.readAsDataURL(file);
+    try {
+      if (key === 'admin-profile-image') {
+        const result = await uploadProfileImage(token, file);
+        const uploadedUrl = resolveImageUrl(result.image);
+        if (uploadedUrl) {
+          window.localStorage.setItem(key, uploadedUrl);
+          onSet(uploadedUrl);
+          notify({ tone: 'success', text: `${label} uploaded.` });
+        }
+        return;
+      }
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        window.localStorage.setItem(key, result);
+        onSet(result);
+        notify({ tone: 'success', text: `${label} uploaded.` });
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      notify({ tone: 'error', text: messageOf(error) });
+    }
   }
 
   const checkBackend = useCallback(async () => {
