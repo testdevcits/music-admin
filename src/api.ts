@@ -6,6 +6,7 @@ export type UserImage = { url: string; alt?: string; publicId?: string };
 export type User = {
   id: string;
   _id?: string;
+  publicId?: string;
   name: string;
   email: string;
   image?: string | UserImage | null;
@@ -35,6 +36,7 @@ export type Song = {
   language: string;
   duration?: number;
   genre?: string;
+  lyrics?: string;
   year?: number;
   trackNumber?: number;
   discNumber?: number;

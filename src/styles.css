@@ -41,6 +41,14 @@
   *::-webkit-scrollbar-thumb:hover { background: #D6A323; }
 }
 
+.page-section-highlight {
+  outline: 2px solid rgba(214, 163, 35, 0.9);
+  outline-offset: 3px;
+  border-radius: 1rem;
+  box-shadow: 0 0 0 4px rgba(214, 163, 35, 0.14);
+  scroll-margin-block: 2rem;
+}
+
 /* The signed-in workspace uses a documentation layout with light reading surfaces. */
 .documentation-panel [class~="bg-slate-900/50"] { background-color: #f9f5ef !important; }
 .documentation-panel [class~="bg-slate-950/35"] { background-color: #f4efe7 !important; }
