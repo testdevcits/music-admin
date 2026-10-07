@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Disc3, FolderTree, Headphones, LoaderCircle, Music2, RefreshCw, Tags, Users } from 'lucide-react';
+import { Activity, Disc3, FolderTree, Headphones, LoaderCircle, Music2, RefreshCw, Tags, TrendingUp, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { api } from '../api';
 
 export type DashboardMonth = {
   key: string; label: string; users: number; songs: number; plays: number;
 };
+type RankedSong = {
+  id: string; title: string; artist: string; categories: string[]; plays: number;
+  completions?: number; listenedSeconds?: number; listeners?: number; lastPlayedAt?: string | null;
+};
+type RankedCategory = { id: string; name: string; slug: string; plays: number; listenedSeconds: number; songs: number };
 type DashboardData = {
   summary: {
     totalUsers: number; activeUsers: number; restrictedUsers: number;
@@ -13,6 +18,8 @@ type DashboardData = {
     artists: number; categories: number; tags: number; playlists: number; listeningEvents: number;
   };
   months: DashboardMonth[];
+  trending: { days: number; since: string; songs: RankedSong[]; categories: RankedCategory[] };
+  popularSongs: RankedSong[];
 };
 type Notice = { tone: 'success' | 'error' | 'info'; text: string };
 type Props = { token: string; notify: (notice: Notice) => void; onNavigate: (tab: 'users' | 'music' | 'catalog') => void };
@@ -47,6 +54,18 @@ export function DashboardPage({ token, notify, onNavigate }: Props) {
     <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">{cards.map(({ label, value, detail, icon: Icon, color, tab }) => <button type="button" key={label} onClick={() => onNavigate(tab)} className="rounded-2xl border border-border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-muted">{label}</p><p className="mt-2 text-3xl font-bold tracking-tight text-ink">{number.format(value)}</p><p className="mt-1 text-xs text-muted">{detail}</p></div><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${color}`}><Icon size={19} /></span></div></button>)}</div>
 
     <AnalyticsCharts months={months} />
+
+    <section className="grid gap-4 xl:grid-cols-2">
+      <div className="rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-start gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-amber-50 text-amber-700"><TrendingUp size={18} /></span><div><h3 className="font-bold text-ink">Trending songs</h3><p className="mt-1 text-xs text-muted">Based on recorded plays and listening time · last 7 days</p></div></div>
+        {data.trending.songs.length ? <div className="mt-4 divide-y divide-border">{data.trending.songs.map((song, index) => <div key={song.id} className="flex items-center gap-3 py-3"><span className="w-5 text-xs font-bold text-muted">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-ink">{song.title}</p><p className="truncate text-xs text-muted">{song.artist}{song.categories.length ? ` · ${song.categories.join(', ')}` : ''}</p></div><div className="shrink-0 text-right"><p className="text-sm font-bold text-ink">{number.format(song.plays)} plays</p><p className="text-[11px] text-muted">{number.format(Math.round((song.listenedSeconds ?? 0) / 60))} min · {number.format(song.listeners ?? 0)} listeners</p></div></div>)}</div> : <p className="mt-4 rounded-xl bg-surface-soft p-4 text-sm text-muted">No listening events in the last 7 days yet. Songs will appear here as listeners play them.</p>}
+        <div className="mt-3 border-t border-border pt-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted">Trending categories</p>{data.trending.categories.length ? <div className="mt-2 flex flex-wrap gap-2">{data.trending.categories.map((category) => <span key={category.id} className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900">{category.name} · {number.format(category.plays)}</span>)}</div> : <p className="mt-2 text-xs text-muted">Category trends appear once categorized songs have listening activity.</p>}</div>
+      </div>
+      <div className="rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-start gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-50 text-violet-700"><Headphones size={18} /></span><div><h3 className="font-bold text-ink">Popular songs</h3><p className="mt-1 text-xs text-muted">All-time play count from recorded play events</p></div></div>
+        {data.popularSongs.length ? <div className="mt-4 divide-y divide-border">{data.popularSongs.map((song, index) => <div key={song.id} className="flex items-center gap-3 py-3"><span className="w-5 text-xs font-bold text-muted">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-ink">{song.title}</p><p className="truncate text-xs text-muted">{song.artist}{song.categories.length ? ` · ${song.categories.join(', ')}` : ''}</p></div><p className="shrink-0 text-sm font-bold text-ink">{number.format(song.plays)} plays</p></div>)}</div> : <p className="mt-4 rounded-xl bg-surface-soft p-4 text-sm text-muted">No published songs are available yet.</p>}
+      </div>
+    </section>
 
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,1fr)]">
       <section id="library-health" className="rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-5"><div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-ink">Library health</h3><p className="mt-1 text-xs text-muted">Catalog and release readiness</p></div><button onClick={() => onNavigate('music')} className="text-sm font-semibold text-navy hover:text-gold-dark">Open library →</button></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{[{ label: 'Ready audio', value: summary.readySongs, icon: Music2 }, { label: 'Artists', value: summary.artists, icon: Disc3 }, { label: 'Categories', value: summary.categories, icon: FolderTree }, { label: 'Tags', value: summary.tags, icon: Tags }].map(({ label, value, icon: Icon }) => <div className="rounded-xl bg-surface-soft p-3" key={label}><Icon size={16} className="text-gold-dark" /><p className="mt-2 text-xl font-bold text-ink">{number.format(value)}</p><p className="text-xs text-muted">{label}</p></div>)}</div></section>
