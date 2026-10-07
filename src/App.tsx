@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   LoaderCircle,
   LogOut,
+  ListRestart,
   Menu,
   Music2,
   PanelRightClose,
@@ -666,6 +667,7 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
   const [tags, setTags] = useState<TagModel[]>([]);
   const [songs, setSongs] = useState<Song[]>([]);
   const [songPage, setSongPage] = useState(1);
+  const [songPageSize, setSongPageSize] = useState(10);
   const [songPages, setSongPages] = useState(1);
   const [songTotal, setSongTotal] = useState(0);
   const [songStateFilter, setSongStateFilter] = useState('');
@@ -676,14 +678,19 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
   const [licenseSong, setLicenseSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Song | null>(null);
   const [songToDelete, setSongToDelete] = useState<Song | null>(null);
+  const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [creatingSong, setCreatingSong] = useState(false);
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
   const [activePreview, setActivePreview] = useState<{ song: Song; artistName: string } | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewRepeat, setPreviewRepeat] = useState(false);
   const [previewTime, setPreviewTime] = useState(0);
   const [previewDuration, setPreviewDuration] = useState(0);
+  const [previewCoverUnavailable, setPreviewCoverUnavailable] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement>(null);
   const previewObjectUrlRef = useRef('');
   useEffect(() => () => { if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current); }, []);
@@ -691,7 +698,7 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
     const requestSequence = ++songRequestSequence.current;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(songPage), limit: '25' });
+      const params = new URLSearchParams({ page: String(songPage), limit: String(songPageSize) });
       if (debouncedQuery.trim()) params.set('q', debouncedQuery.trim());
       if (songStateFilter) params.set(songStateFilter === 'published' || songStateFilter === 'unpublished' ? 'published' : 'processing', songStateFilter === 'published' ? 'true' : songStateFilter === 'unpublished' ? 'false' : songStateFilter);
       if (songQualityFilter) params.set('quality', songQualityFilter);
@@ -699,13 +706,13 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
       if (requestSequence !== songRequestSequence.current) return;
       setSongs(songResult.data); setSongPages(Math.max(1, songResult.pages)); setSongTotal(songResult.total);
     } catch (error) { if (requestSequence === songRequestSequence.current) notify({ tone: 'error', text: messageOf(error) }); } finally { if (requestSequence === songRequestSequence.current) setLoading(false); }
-  }, [token, notify, songPage, songStateFilter, songQualityFilter, debouncedQuery]);
+  }, [token, notify, songPage, songPageSize, songStateFilter, songQualityFilter, debouncedQuery]);
   useEffect(() => { if (active) void load(); }, [active, load]);
   useEffect(() => {
     const timer = window.setTimeout(() => { setDebouncedQuery(searchQuery); setSongPage(1); }, 250);
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
-  useEffect(() => { setSongPage(1); }, [songStateFilter, songQualityFilter]);
+  useEffect(() => { setSongPage(1); setSelectedSongIds([]); }, [songStateFilter, songQualityFilter, songPageSize, debouncedQuery]);
   useEffect(() => {
     if (!active) return;
     Promise.all([api<{ data: Artist[] }>(token, '/admin/artists?limit=100'), api<{ data: Category[] }>(token, '/admin/categories?limit=100'), api<{ data: TagModel[] }>(token, '/admin/tags?limit=100')])
@@ -799,6 +806,33 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
       notify({ tone: 'error', text: messageOf(error) });
     }
   }
+  async function bulkUnpublishSongs() {
+    const selected = songs.filter((song) => selectedSongIds.includes(song.mongoId ?? song.id) && song.published);
+    if (!selected.length) {
+      notify({ tone: 'info', text: 'The selected songs are already unpublished.' });
+      return;
+    }
+    setBulkBusy(true);
+    const results = await Promise.allSettled(selected.map((song) => api(token, `/admin/songs/${song.mongoId ?? song.id}/publish`, { method: 'POST', body: JSON.stringify({ published: false }) })));
+    const succeeded = results.filter((result) => result.status === 'fulfilled').length;
+    const failed = results.length - succeeded;
+    setBulkBusy(false);
+    setSelectedSongIds([]);
+    await load();
+    notify({ tone: failed ? 'error' : 'success', text: failed ? `${succeeded} song${succeeded === 1 ? '' : 's'} unpublished; ${failed} could not be updated.` : `${succeeded} song${succeeded === 1 ? '' : 's'} unpublished.` });
+  }
+  async function bulkDeleteSongs() {
+    const selected = songs.filter((song) => selectedSongIds.includes(song.mongoId ?? song.id));
+    setBulkBusy(true);
+    const results = await Promise.allSettled(selected.map((song) => api(token, `/admin/songs/${song.mongoId ?? song.id}`, { method: 'DELETE' })));
+    const succeeded = results.filter((result) => result.status === 'fulfilled').length;
+    const failed = results.length - succeeded;
+    setBulkBusy(false);
+    setBulkDeleteOpen(false);
+    setSelectedSongIds([]);
+    await load();
+    notify({ tone: failed ? 'error' : 'success', text: failed ? `${succeeded} song${succeeded === 1 ? '' : 's'} deleted; ${failed} could not be deleted.` : `${succeeded} song${succeeded === 1 ? '' : 's'} deleted.` });
+  }
   async function toggleSongPreview(song: Song, artistName: string) {
     const audio = previewAudioRef.current;
     if (!audio) return;
@@ -821,6 +855,7 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
       audio.src = url;
       audio.load();
       setActivePreview({ song, artistName });
+      setPreviewCoverUnavailable(false);
       setPreviewTime(0);
       setPreviewDuration(0);
       await audio.play();
@@ -846,12 +881,16 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
   }
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const visibleSongs = songs;
+  const visibleSongIds = visibleSongs.map((song) => song.mongoId ?? song.id);
+  const selectedVisibleCount = visibleSongIds.filter((id) => selectedSongIds.includes(id)).length;
+  const allVisibleSelected = visibleSongIds.length > 0 && selectedVisibleCount === visibleSongIds.length;
+  const selectedPublishedCount = visibleSongs.filter((song) => selectedSongIds.includes(song.mongoId ?? song.id) && song.published).length;
   const artistNames = new Map(artists.map((artist) => [artist.mongoId ?? artist._id ?? artist.id, artist.name]));
   const categoryNames = new Map(categories.map((category) => [category.mongoId ?? category._id ?? category.id, category.name]));
   const tagNames = new Map(tags.map((tag) => [tag.mongoId ?? tag._id ?? tag.id, tag.name]));
   return (
     <section id="music-processing" className={`space-y-5 ${activePreview ? 'pb-24' : ''}`}>
-      <audio ref={previewAudioRef} className="hidden" preload="metadata" onPlay={() => setPreviewPlaying(true)} onPause={() => setPreviewPlaying(false)} onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)} onLoadedMetadata={(event) => setPreviewDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onDurationChange={(event) => setPreviewDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onEnded={() => { setPreviewPlaying(false); setPreviewTime(0); }} />
+      <audio ref={previewAudioRef} className="hidden" preload="metadata" onPlay={() => setPreviewPlaying(true)} onPause={() => setPreviewPlaying(false)} onTimeUpdate={(event) => setPreviewTime(event.currentTarget.currentTime)} onLoadedMetadata={(event) => setPreviewDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onDurationChange={(event) => setPreviewDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)} onEnded={(event) => { if (previewRepeat) { event.currentTarget.currentTime = 0; void event.currentTarget.play().catch(() => { setPreviewPlaying(false); notify({ tone: 'error', text: 'Unable to repeat this audio preview.' }); }); } else { setPreviewPlaying(false); setPreviewTime(0); } }} />
       {showCreateForm ? (
         <section id="create-song" className="rounded-3xl border border-white/[0.09] bg-slate-900/50 p-5 shadow-2xl shadow-black/10 backdrop-blur sm:p-6">
           <div className="mb-6 flex items-start justify-between gap-4">
@@ -922,21 +961,26 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
             <FilterDropdown label="Filter by status" value={songStateFilter} onChange={setSongStateFilter} options={[{ value: '', label: 'All statuses' }, { value: 'pending', label: 'Pending' }, { value: 'processing', label: 'Processing' }, { value: 'ready', label: 'Ready' }, { value: 'failed', label: 'Failed' }, { value: 'published', label: 'Published' }, { value: 'unpublished', label: 'Unpublished' }]} />
             <FilterDropdown label="Filter by audio quality" value={songQualityFilter} onChange={setSongQualityFilter} options={[{ value: '', label: 'All qualities' }, { value: '64', label: '64 kbps' }, { value: '128', label: '128 kbps' }, { value: '192', label: '192 kbps' }]} />
             {(songStateFilter || songQualityFilter) && <button className="px-2 py-1.5 text-xs font-semibold text-navy hover:underline" onClick={() => { setSongStateFilter(''); setSongQualityFilter(''); setSongPage(1); }}>Clear filters</button>}
-            <span className="ml-auto text-xs text-muted">{loading ? 'Updating…' : `Showing ${songTotal ? (songPage - 1) * 25 + 1 : 0}–${Math.min(songPage * 25, songTotal)} of ${songTotal.toLocaleString()}`}</span>
+            <span className="ml-auto text-xs text-muted">{loading ? 'Updating…' : `Showing ${songTotal ? (songPage - 1) * songPageSize + 1 : 0}–${Math.min(songPage * songPageSize, songTotal)} of ${songTotal.toLocaleString()}`}</span>
           </div>
-          {loading ? <LoadingRows /> : visibleSongs.length === 0 ? <div id="rights-and-publishing"><Empty title={normalizedQuery ? 'No matching songs' : 'Your library is empty'} text={normalizedQuery ? 'No songs match these search and filter settings.' : 'Use the + button to create a song.'} icon={Music2} /></div> : <div id="rights-and-publishing" className="divide-y divide-white/[0.07]">{visibleSongs.map((song) => { const artistName = artistNames.get(song.artist) || 'Unknown artist'; return <SongRow key={song.id} song={song} artistName={artistName} categoryNames={(song.categories || []).map((value) => categoryNames.get(value) || value)} tagNames={(song.tags || []).map((value) => tagNames.get(value) || value)} onPreview={toggleSongPreview} isPreviewActive={activePreview?.song.id === song.id} previewPlaying={previewPlaying} previewLoading={previewLoadingId === song.id} onEdit={setEditingSong} onLicense={setLicenseSong} onPublish={publish} onDelete={setSongToDelete} />; })}</div>}
-          <div className="flex items-center justify-between border-t border-white/[0.08] px-4 py-2.5 sm:px-5"><span className="text-xs text-slate-500">Page {songPage} / {songPages}</span><div className="flex gap-2"><button className={secondary} disabled={loading || songPage <= 1} onClick={() => setSongPage((current) => Math.max(1, current - 1))}>Previous</button><button className={secondary} disabled={loading || songPage >= songPages} onClick={() => setSongPage((current) => Math.min(songPages, current + 1))}>Next</button></div></div>
+          {visibleSongs.length > 0 && <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface-soft px-4 py-2.5 sm:px-5">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-ink"><input type="checkbox" className="h-4 w-4 accent-amber-600" aria-label="Select all songs on this page" checked={allVisibleSelected} ref={(element) => { if (element) element.indeterminate = selectedVisibleCount > 0 && !allVisibleSelected; }} onChange={(event) => setSelectedSongIds((current) => event.target.checked ? Array.from(new Set([...current, ...visibleSongIds])) : current.filter((id) => !visibleSongIds.includes(id)))} />Select page</label>
+            {selectedSongIds.length > 0 && <><span className="text-xs text-muted">{selectedSongIds.length} selected</span><button type="button" className="rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-semibold text-navy hover:bg-navy-soft disabled:opacity-50" disabled={bulkBusy || selectedPublishedCount === 0} onClick={() => void bulkUnpublishSongs()}>{bulkBusy ? 'Working…' : `Unpublish${selectedPublishedCount ? ` (${selectedPublishedCount})` : ''}`}</button><button type="button" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50" disabled={bulkBusy} onClick={() => setBulkDeleteOpen(true)}>Delete selected</button><button type="button" className="px-2 py-1.5 text-xs font-semibold text-muted hover:text-ink" disabled={bulkBusy} onClick={() => setSelectedSongIds([])}>Clear</button></>}
+          </div>}
+          {loading ? <LoadingRows /> : visibleSongs.length === 0 ? <div id="rights-and-publishing"><Empty title={normalizedQuery ? 'No matching songs' : 'Your library is empty'} text={normalizedQuery ? 'No songs match these search and filter settings.' : 'Use the + button to create a song.'} icon={Music2} /></div> : <div id="rights-and-publishing" className="divide-y divide-white/[0.07]">{visibleSongs.map((song) => { const artistName = artistNames.get(song.artist) || 'Unknown artist'; const songId = song.mongoId ?? song.id; return <SongRow key={song.id} song={song} selected={selectedSongIds.includes(songId)} onSelect={(checked) => setSelectedSongIds((current) => checked ? Array.from(new Set([...current, songId])) : current.filter((id) => id !== songId))} artistName={artistName} categoryNames={(song.categories || []).map((value) => categoryNames.get(value) || value)} tagNames={(song.tags || []).map((value) => tagNames.get(value) || value)} onPreview={toggleSongPreview} isPreviewActive={activePreview?.song.id === song.id} previewPlaying={previewPlaying} previewLoading={previewLoadingId === song.id} onEdit={setEditingSong} onLicense={setLicenseSong} onPublish={publish} onDelete={setSongToDelete} />; })}</div>}
+          <div className="flex flex-col gap-3 border-t border-white/[0.08] px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-5"><span className="text-xs text-slate-500">Page {songPage} / {songPages}</span><div className="flex flex-wrap items-center gap-2"><label className="flex items-center gap-2 text-xs text-slate-500">Rows per page<select aria-label="Songs per page" className="rounded-lg border border-border bg-white px-2 py-1.5 text-xs text-ink" value={songPageSize} onChange={(event) => { setSongPageSize(Number(event.target.value)); setSongPage(1); setSelectedSongIds([]); }}><option value={10}>10</option><option value={20}>20</option><option value={30}>30</option></select></label><button className={secondary} disabled={loading || songPage <= 1} onClick={() => { setSelectedSongIds([]); setSongPage((current) => Math.max(1, current - 1)); }}>Previous</button><button className={secondary} disabled={loading || songPage >= songPages} onClick={() => { setSelectedSongIds([]); setSongPage((current) => Math.min(songPages, current + 1)); }}>Next</button></div></div>
         </section>
       )}
           {activePreview && createPortal(<div className="fixed bottom-3 left-1/2 z-40 w-[min(720px,calc(100vw-1.5rem))] -translate-x-1/2 rounded-2xl border border-border bg-white p-3 text-ink sm:bottom-5 sm:p-4" role="region" aria-label="Audio preview player">
-        <div className="flex items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-700"><Music2 size={19} /></span>
+          <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-violet-100 text-violet-700">{activePreview.song.coverUrl && !previewCoverUnavailable ? <img src={activePreview.song.coverUrl} alt={`${activePreview.song.title} cover`} className="h-full w-full object-cover" onError={() => setPreviewCoverUnavailable(true)} /> : <Music2 size={19} />}</span>
           <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{activePreview.song.title}</p><p className="truncate text-xs text-muted">{activePreview.artistName}</p></div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <button type="button" className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-navy hover:bg-surface-soft" onClick={() => seekPreview(-10)} aria-label="Back 10 seconds" title="Back 10 seconds"><Rewind size={17} /><span>10</span></button>
             <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-primary text-navy-dark hover:bg-gold-dark" onClick={() => { const audio = previewAudioRef.current; if (!audio) return; if (audio.paused) { if (audio.ended) audio.currentTime = 0; void audio.play(); } else audio.pause(); }} aria-label={previewPlaying ? 'Pause preview' : 'Play preview'} title={previewPlaying ? 'Pause' : 'Play'}>{previewPlaying ? <Pause size={19} fill="currentColor" /> : <Play size={19} fill="currentColor" />}</button>
             <button type="button" className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-navy hover:bg-surface-soft" onClick={() => seekPreview(10)} aria-label="Forward 10 seconds" title="Forward 10 seconds"><span>10</span><FastForward size={17} /></button>
           </div>
+          <button type="button" className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${previewRepeat ? 'bg-primary/20 text-navy ring-1 ring-primary/50' : 'text-muted hover:bg-surface-soft hover:text-navy'}`} onClick={() => setPreviewRepeat((repeat) => !repeat)} aria-label={previewRepeat ? 'Turn repeat off' : 'Repeat this song'} aria-pressed={previewRepeat} title={previewRepeat ? 'Repeat on' : 'Repeat song'}><ListRestart size={17} /></button>
           <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-soft hover:text-ink" onClick={closePreview} aria-label="Close player"><X size={17} /></button>
         </div>
         <div className="mt-2 flex items-center gap-2 text-[11px] tabular-nums text-muted"><span className="w-9 text-right">{formatAudioTime(previewTime)}</span><input aria-label="Seek audio" type="range" min={0} max={previewDuration || 0} step={0.1} value={Math.min(previewTime, previewDuration || 0)} onChange={(event) => { const value = Number(event.target.value); if (previewAudioRef.current) previewAudioRef.current.currentTime = value; setPreviewTime(value); }} className="h-1.5 min-w-0 flex-1 cursor-pointer accent-primary" /><span className="w-9">{formatAudioTime(previewDuration)}</span></div>
@@ -944,6 +988,7 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
           {licenseSong && <LicenseDialog token={token} song={licenseSong} onClose={() => setLicenseSong(null)} onSaved={async () => { setLicenseSong(null); await load(); notify({ tone: 'success', text: 'Music rights and availability have been saved.' }); }} onError={(text) => notify({ tone: 'error', text })} />}
           {editingSong && <SongEditDialog token={token} song={editingSong} artists={artists} categories={categories} tags={tags} onClose={() => setEditingSong(null)} onSaved={async () => { setEditingSong(null); await load(); notify({ tone: 'success', text: 'Song details and selected files were updated.' }); }} onError={(text) => notify({ tone: 'error', text })} />}
           {songToDelete && <ConfirmDialog title={`Delete “${songToDelete.title}”?`} message="This song and its catalog record will be permanently removed." onCancel={() => setSongToDelete(null)} onConfirm={() => removeSong(songToDelete)} />}
+          {bulkDeleteOpen && <ConfirmDialog title={`Delete ${selectedSongIds.length} selected songs?`} message="These songs and their catalog records will be permanently removed. This action cannot be undone." confirmLabel={`Delete ${selectedSongIds.length} songs`} onCancel={() => { if (!bulkBusy) setBulkDeleteOpen(false); }} onConfirm={bulkDeleteSongs} />}
     </section>
   );
 }
@@ -1127,13 +1172,13 @@ function SongEditDialog({ token, song, artists, categories, tags, onClose, onSav
   return <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="edit-song-title"><form key={song.mongoId ?? song.id} className="my-auto w-full max-w-3xl space-y-4 rounded-2xl border border-border bg-white p-5 shadow-2xl" onSubmit={(event) => void submit(event)}><div className="flex items-start justify-between"><div><h2 id="edit-song-title" className="text-lg font-bold text-ink">Edit song</h2><p className="mt-1 text-xs text-muted">Song data is prefilled from the saved record. Change any fields and save.</p></div><button type="button" className="grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-surface-soft" onClick={onClose} aria-label="Close"><X size={18} /></button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Field label="Title"><input className={inputClass} name="title" defaultValue={song.title} required maxLength={200} /></Field><Field label="Artist"><select className={inputClass} name="artist" defaultValue={song.artist} required>{artists.map((artist) => <option key={artist.mongoId ?? artist.id} value={artist.mongoId ?? artist.id}>{artist.name}</option>)}</select></Field><Field label="Language"><input className={inputClass} name="language" defaultValue={song.language} required minLength={2} maxLength={50} /></Field><Field label="Genre"><input className={inputClass} name="genre" defaultValue={song.genre || ''} maxLength={100} /></Field><Field label="Year"><input className={inputClass} name="year" type="number" min={1900} max={2100} defaultValue={song.year ?? ''} /></Field><Field label="Duration (seconds)"><input className={inputClass} name="duration" type="number" min={0} max={86400} defaultValue={song.duration ?? ''} /></Field><Field label="Format"><input className={inputClass} name="format" defaultValue={song.format || ''} maxLength={20} /></Field><Field label="Source bitrate (kbps)"><input className={inputClass} name="bitrate" type="number" min={1} max={2000} defaultValue={song.bitrate ?? ''} /></Field><Field label="Track number"><input className={inputClass} name="trackNumber" type="number" min={1} max={500} defaultValue={song.trackNumber ?? ''} /></Field><Field label="Disc number"><input className={inputClass} name="discNumber" type="number" min={1} max={20} defaultValue={song.discNumber ?? ''} /></Field></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Categories"><CustomMultiSelect key={`edit-categories-${song.mongoId ?? song.id}`} name="categories" items={categories.map((item) => ({ value: item.mongoId ?? item.id, label: item.name }))} selectedValues={song.categories || []} placeholder="Select categories" helper="Saved categories are preselected." /></Field><Field label="Tags"><CustomMultiSelect key={`edit-tags-${song.mongoId ?? song.id}`} name="tags" items={tags.map((item) => ({ value: item.mongoId ?? item.id, label: item.name }))} selectedValues={song.tags || []} placeholder="Select tags" helper="Saved tags are preselected." /></Field></div><Field label="Lyrics"><textarea className={`${inputClass} min-h-24`} name="lyrics" defaultValue={song.lyrics || ''} maxLength={50000} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Replace MP3"><input className={inputClass} type="file" name="audioFile" accept="audio/mpeg,.mp3" /><Hint>Current qualities: {song.audio?.map((item) => `${item.quality} kbps`).join(', ') || 'Not processed'} · Replacing the MP3 regenerates all supported qualities.</Hint></Field><Field label="Replace cover">{song.coverUrl && <img src={song.coverUrl} alt={`${song.title} current cover`} className="mt-2 mb-2 h-14 w-14 rounded-lg object-cover" />}<input className={inputClass} type="file" name="coverFile" accept="image/jpeg,image/png,image/webp" /></Field></div><div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3"><p className="text-xs text-muted">Status: {song.processing} · {song.published ? 'Published' : 'Unpublished'} · Added {song.dateAdded ? new Date(song.dateAdded).toLocaleString() : '—'}</p><div className="flex gap-2"><button type="button" className={secondary} onClick={onClose}>Cancel</button><button className={primary} disabled={busy}>{busy && <LoaderCircle className="animate-spin" size={15} />}Save song</button></div></div></form></div>;
 }
 
-function SongRow({ song, artistName, categoryNames, tagNames, onPreview, isPreviewActive, previewPlaying, previewLoading, onEdit, onLicense, onPublish, onDelete }: { song: Song; artistName: string; categoryNames: string[]; tagNames: string[]; onPreview: (song: Song, artistName: string) => void; isPreviewActive: boolean; previewPlaying: boolean; previewLoading: boolean; onEdit: (song: Song) => void; onLicense: (song: Song) => void; onPublish: (song: Song) => Promise<void>; onDelete: (song: Song) => void | Promise<void> }) {
+function SongRow({ song, selected, onSelect, artistName, categoryNames, tagNames, onPreview, isPreviewActive, previewPlaying, previewLoading, onEdit, onLicense, onPublish, onDelete }: { song: Song; selected: boolean; onSelect: (checked: boolean) => void; artistName: string; categoryNames: string[]; tagNames: string[]; onPreview: (song: Song, artistName: string) => void; isPreviewActive: boolean; previewPlaying: boolean; previewLoading: boolean; onEdit: (song: Song) => void; onLicense: (song: Song) => void; onPublish: (song: Song) => Promise<void>; onDelete: (song: Song) => void | Promise<void> }) {
   const [coverUnavailable, setCoverUnavailable] = useState(false); const [busy, setBusy] = useState<'publish' | null>(null);
   async function publish() { setBusy('publish'); try { await onPublish(song); } finally { setBusy(null); } }
   const qualities = song.audio?.map((item) => item.quality).join(' · ');
   const audioStatus = qualities || (song.processing === 'pending' ? 'MP3 is waiting for upload' : song.processing === 'processing' ? 'MP3 is being processed' : 'MP3 processing failed');
   const duration = song.duration ? `${Math.floor(song.duration / 60)}:${String(song.duration % 60).padStart(2, '0')}` : null;
-  return <article className="px-3 py-2 sm:px-4"><div className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-x-3 gap-y-1 sm:grid-cols-[3rem_minmax(0,1fr)_auto] sm:items-center"><div className="row-span-2 sm:row-span-1"><div className="group relative h-11 w-11 overflow-hidden rounded-xl sm:h-12 sm:w-12">{song.coverUrl && !coverUnavailable ? <img src={song.coverUrl} alt={`${song.title} cover`} className="h-full w-full object-cover" onError={() => setCoverUnavailable(true)} /> : <span className="grid h-full w-full place-items-center bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700"><Music2 size={20} /></span>}<button type="button" className={`absolute inset-0 grid place-items-center text-white transition ${isPreviewActive ? 'bg-slate-950/55 opacity-100' : 'bg-slate-950/35 opacity-100 sm:bg-slate-950/0 sm:opacity-0 sm:group-hover:bg-slate-950/45 sm:group-hover:opacity-100'}`} aria-label={isPreviewActive && previewPlaying ? `Pause ${song.title}` : `Play ${song.title}`} title={isPreviewActive && previewPlaying ? 'Pause' : 'Play'} disabled={song.processing !== 'ready' || previewLoading} onClick={() => onPreview(song, artistName)}><span className="grid h-8 w-8 place-items-center rounded-full bg-white text-navy ring-1 ring-white/80">{previewLoading ? <LoaderCircle className="animate-spin" size={17} /> : isPreviewActive && previewPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}</span></button></div></div><div className="min-w-0"><div className="flex flex-wrap items-baseline gap-x-2"><h3 className="break-words text-sm font-bold text-ink">{song.title}</h3><span className="truncate text-xs text-muted">{artistName}</span></div><p className="truncate text-[11px] text-muted">{[song.language, song.genre, song.year, duration].filter(Boolean).join(' · ')}{qualities ? ` · ${qualities} kbps` : ''}</p><div className="mt-1 flex flex-wrap gap-1">{[song.processing, ...(song.published ? ['Published'] : []), ...categoryNames, ...tagNames.map((name) => `#${name}`)].map((label, index) => <span key={`${label}-${index}`} className="rounded-full border border-border bg-white/65 px-1.5 py-0.5 text-[10px] font-medium text-ink">{label}</span>)}</div></div><div className="col-span-2 flex flex-wrap items-center gap-1 sm:col-span-1 sm:row-span-1 sm:justify-end"><button type="button" className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-white text-navy hover:bg-navy-soft" aria-label={`Edit ${song.title}`} title="Edit song" onClick={() => onEdit(song)}><Pencil size={16} /></button><button type="button" className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-white text-navy hover:bg-navy-soft" aria-label={`Set rights for ${song.title}`} title="Rights" onClick={() => onLicense(song)}><ShieldCheck size={16} /></button>{song.processing === 'ready' && <button type="button" className={`grid h-9 w-9 place-items-center rounded-lg ${song.published ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' : 'bg-amber-100 text-amber-800 hover:bg-amber-200'}`} aria-label={song.published ? `Unpublish ${song.title}` : `Publish ${song.title}`} title={song.published ? 'Unpublish' : 'Publish'} disabled={busy === 'publish'} onClick={() => void publish()}>{busy === 'publish' ? <LoaderCircle className="animate-spin" size={16} /> : song.published ? <EyeOff size={16} /> : <Eye size={16} />}</button>}<button type="button" className="grid h-9 w-9 place-items-center rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200" aria-label={`Delete ${song.title}`} title="Delete" onClick={() => void onDelete(song)}><Trash2 size={16} /></button></div></div></article>;
+  return <article className="px-3 py-2 sm:px-4"><div className="grid grid-cols-[1.25rem_2.75rem_minmax(0,1fr)] gap-x-3 gap-y-1 sm:grid-cols-[1.25rem_3rem_minmax(0,1fr)_auto] sm:items-center"><label className="row-span-2 flex items-center justify-center sm:row-span-1"><input type="checkbox" className="h-4 w-4 cursor-pointer accent-amber-600" checked={selected} onChange={(event) => onSelect(event.target.checked)} aria-label={`Select ${song.title}`} /></label><div className="row-span-2 sm:row-span-1"><div className="group relative h-11 w-11 overflow-hidden rounded-xl sm:h-12 sm:w-12">{song.coverUrl && !coverUnavailable ? <img src={song.coverUrl} alt={`${song.title} cover`} className="h-full w-full object-cover" onError={() => setCoverUnavailable(true)} /> : <span className="grid h-full w-full place-items-center bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700"><Music2 size={20} /></span>}<button type="button" className={`absolute inset-0 grid place-items-center text-white transition ${isPreviewActive ? 'bg-slate-950/55 opacity-100' : 'bg-slate-950/35 opacity-100 sm:bg-slate-950/0 sm:opacity-0 sm:group-hover:bg-slate-950/45 sm:group-hover:opacity-100'}`} aria-label={isPreviewActive && previewPlaying ? `Pause ${song.title}` : `Play ${song.title}`} title={isPreviewActive && previewPlaying ? 'Pause' : 'Play'} disabled={song.processing !== 'ready' || previewLoading} onClick={() => onPreview(song, artistName)}><span className="grid h-8 w-8 place-items-center rounded-full bg-white text-navy ring-1 ring-white/80">{previewLoading ? <LoaderCircle className="animate-spin" size={17} /> : isPreviewActive && previewPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}</span></button></div></div><div className="min-w-0"><div className="flex flex-wrap items-baseline gap-x-2"><h3 className="break-words text-sm font-bold text-ink">{song.title}</h3><span className="truncate text-xs text-muted">{artistName}</span></div><p className="truncate text-[11px] text-muted">{[song.language, song.genre, song.year, duration].filter(Boolean).join(' · ')}{qualities ? ` · ${qualities} kbps` : ''}</p><div className="mt-1 flex flex-wrap gap-1">{[song.processing, ...(song.published ? ['Published'] : []), ...categoryNames, ...tagNames.map((name) => `#${name}`)].map((label, index) => <span key={`${label}-${index}`} className="rounded-full border border-border bg-white/65 px-1.5 py-0.5 text-[10px] font-medium text-ink">{label}</span>)}</div></div><div className="col-span-3 flex flex-wrap items-center gap-1 sm:col-span-1 sm:row-span-1 sm:justify-end"><button type="button" className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-white text-navy hover:bg-navy-soft" aria-label={`Edit ${song.title}`} title="Edit song" onClick={() => onEdit(song)}><Pencil size={16} /></button><button type="button" className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-white text-navy hover:bg-navy-soft" aria-label={`Set rights for ${song.title}`} title="Rights" onClick={() => onLicense(song)}><ShieldCheck size={16} /></button>{song.processing === 'ready' && <button type="button" className={`grid h-9 w-9 place-items-center rounded-lg ${song.published ? 'bg-rose-100 text-rose-700 hover:bg-rose-200' : 'bg-amber-100 text-amber-800 hover:bg-amber-200'}`} aria-label={song.published ? `Unpublish ${song.title}` : `Publish ${song.title}`} title={song.published ? 'Unpublish' : 'Publish'} disabled={busy === 'publish'} onClick={() => void publish()}>{busy === 'publish' ? <LoaderCircle className="animate-spin" size={16} /> : song.published ? <EyeOff size={16} /> : <Eye size={16} />}</button>}<button type="button" className="grid h-9 w-9 place-items-center rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200" aria-label={`Delete ${song.title}`} title="Delete" onClick={() => void onDelete(song)}><Trash2 size={16} /></button></div></div></article>;
 }
 
 function LicenseDialog({ token, song, onClose, onSaved, onError }: { token: string; song: Song; onClose: () => void; onSaved: () => Promise<void>; onError: (message: string) => void }) {

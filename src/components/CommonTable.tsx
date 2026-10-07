@@ -20,11 +20,12 @@ type Props<T> = {
 
 export function CommonTable<T>({ rows, columns, rowKey, loading = false, pageSize = 10, emptyMessage }: Props<T>) {
   const [page, setPage] = useState(1);
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const [rowsPerPage, setRowsPerPage] = useState(pageSize);
+  const pageCount = Math.max(1, Math.ceil(rows.length / rowsPerPage));
   const safePage = Math.min(page, pageCount);
-  const visibleRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const from = rows.length ? (safePage - 1) * pageSize + 1 : 0;
-  const to = Math.min(safePage * pageSize, rows.length);
+  const visibleRows = rows.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage);
+  const from = rows.length ? (safePage - 1) * rowsPerPage + 1 : 0;
+  const to = Math.min(safePage * rowsPerPage, rows.length);
 
   return <div className="overflow-hidden bg-white">
     <div className="overflow-x-auto">
@@ -39,7 +40,8 @@ export function CommonTable<T>({ rows, columns, rowKey, loading = false, pageSiz
     </div>
     <footer className="flex flex-col gap-3 border-t border-border px-4 py-3 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
       <span>Showing {from}–{to} of {rows.length.toLocaleString()}</span>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2">Rows per page<select aria-label="Rows per page" className="rounded-lg border border-border bg-white px-2 py-1.5 text-xs text-ink" value={rowsPerPage} onChange={(event) => { setRowsPerPage(Number(event.target.value)); setPage(1); }}><option value={10}>10</option><option value={20}>20</option><option value={30}>30</option></select></label>
         <button type="button" className="rounded-lg border border-border bg-white px-3 py-1.5 font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-45" disabled={safePage <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
         <span className="min-w-16 text-center">Page {safePage} / {pageCount}</span>
         <button type="button" className="rounded-lg border border-border bg-white px-3 py-1.5 font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-45" disabled={safePage >= pageCount || loading} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Next</button>
