@@ -53,7 +53,6 @@ export type Song = {
   processing: 'pending' | 'processing' | 'ready' | 'failed';
   published: boolean;
   audio?: { quality: string }[];
-  audioUrl?: string;
 };
 export class ApiError extends Error {}
 export const configured = Boolean(baseUrl);
