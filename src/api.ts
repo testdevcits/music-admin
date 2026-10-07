@@ -56,7 +56,18 @@ export type Song = {
   published: boolean;
   audio?: { quality: string }[];
 };
-export class ApiError extends Error {}
+export type ApiErrorDetails = {
+  formErrors?: string[];
+  fieldErrors?: Record<string, string[]>;
+};
+export class ApiError extends Error {
+  details?: ApiErrorDetails;
+  constructor(message: string, details?: ApiErrorDetails) {
+    super(message);
+    this.name = 'ApiError';
+    this.details = details;
+  }
+}
 export const configured = Boolean(baseUrl);
 
 export async function api<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
@@ -70,7 +81,7 @@ export async function api<T>(token: string, path: string, init: RequestInit = {}
   const body = response.status === 204 ? null : await response.json().catch(() => null);
   console.log('[api] response', { requestUrl, status: response.status, body });
 
-  if (!response.ok) throw new ApiError(body?.error?.code || `Request failed (${response.status})`);
+  if (!response.ok) throw new ApiError(body?.error?.code || `Request failed (${response.status})`, body?.error?.details);
   return body as T;
 }
 

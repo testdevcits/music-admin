@@ -49,6 +49,12 @@
   scroll-margin-block: 2rem;
 }
 
+.license-dialog-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.license-dialog-scroll::-webkit-scrollbar { display: none; }
+
 /* The signed-in workspace uses a documentation layout with light reading surfaces. */
 .documentation-panel [class~="bg-slate-900/50"] { background-color: #f9f5ef !important; }
 .documentation-panel [class~="bg-slate-950/35"] { background-color: #f4efe7 !important; }
