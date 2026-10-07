@@ -51,9 +51,32 @@ import type { CommonTableColumn } from './components/CommonTable';
 import { useAppDispatch, useAppSelector } from './store/hooks';
 import { setMe, setToken, signOut as clearAuth } from './store/authSlice';
 
-type Tab = 'dashboard' | 'users' | 'music' | 'catalog' | 'import' | 'settings' | 'workflow' | 'policies';
+type Tab = 'dashboard' | 'users' | 'music' | 'catalog' | 'import' | 'settings' | 'workflow' | 'policies' | 'notifications';
 type CatalogSection = 'artists' | 'categories' | 'tags';
 type Notice = { tone: 'success' | 'error' | 'info'; text: string };
+
+const routeByTab: Record<Tab, string> = {
+  dashboard: '/dashboard',
+  users: '/users',
+  music: '/music',
+  catalog: '/catalog',
+  import: '/import',
+  settings: '/settings',
+  workflow: '/workflow',
+  policies: '/policies',
+  notifications: '/notifications',
+};
+const tabByRoute = Object.fromEntries(Object.entries(routeByTab).map(([tab, path]) => [path, tab])) as Record<string, Tab>;
+function tabFromPath(pathname: string): Tab {
+  const path = pathname.replace(/\/$/, '') || '/';
+  if (/^\/users\/[^/]+$/.test(path)) return 'users';
+  return tabByRoute[path] ?? 'dashboard';
+}
+function userIdFromPath(pathname: string): string | null {
+  const match = pathname.replace(/\/$/, '').match(/^\/users\/([^/]+)$/);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
 
 const pageSections: Record<Tab, PageSectionItem[]> = {
   dashboard: [{ id: 'dashboard-overview', label: 'Overview' }, { id: 'growth-overview', label: 'Growth overview' }, { id: 'listening-activity', label: 'Listening activity' }, { id: 'library-health', label: 'Library health' }, { id: 'account-status', label: 'Account status' }],
@@ -64,6 +87,7 @@ const pageSections: Record<Tab, PageSectionItem[]> = {
   settings: [{ id: 'admin-profile', label: 'Admin profile' }, { id: 'branding', label: 'Branding' }, { id: 'system-health', label: 'System health' }],
   workflow: [{ id: 'catalog-setup', label: 'Catalog setup' }, { id: 'song-creation', label: 'Song creation' }, { id: 'audio-upload', label: 'Audio upload' }, { id: 'review-and-publish', label: 'Review and publish' }, { id: 'publish-and-monitor', label: 'Publish and monitor' }],
   policies: [{ id: 'add-policy', label: 'Add policy' }, { id: 'saved-policies', label: 'Saved policies' }],
+  notifications: [{ id: 'all-notifications', label: 'All notifications' }],
 };
 
 const tokenKey = 'music-platform-admin-token';
@@ -82,6 +106,7 @@ const pageCopy: Record<Tab, { eyebrow: string; title: string; description: strin
   settings: { eyebrow: 'Workspace controls', title: 'Settings', description: 'Manage your admin identity, logo branding, and platform system health.' },
   workflow: { eyebrow: 'Release flow', title: 'View music workflow', description: 'Walk through the full music lifecycle from catalog setup to publishing.' },
   policies: { eyebrow: 'Workspace controls', title: 'Platform policies', description: 'Create and manage the policies shown to your platform users.' },
+  notifications: { eyebrow: 'Audience messaging', title: 'Notifications', description: 'Send an in-app message to a listener.' },
 };
 
 function messageOf(error: unknown) {
@@ -128,7 +153,8 @@ export default function App() {
   const [token, setTokenState] = useState(() => reduxToken || sessionStorage.getItem(tokenKey) || '');
   const [me, setMeState] = useState<User | null>(reduxMe);
   const [authLoading, setAuthLoading] = useState(() => Boolean(reduxToken || sessionStorage.getItem(tokenKey)) && !reduxMe);
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const [tab, setTab] = useState<Tab>(() => tabFromPath(window.location.pathname));
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(() => userIdFromPath(window.location.pathname));
   const [pageHeaderCompact, setPageHeaderCompact] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const pageHeaderRef = useRef<HTMLDivElement>(null);
@@ -152,11 +178,41 @@ export default function App() {
   }, [dispatch]);
 
   const changeTab = useCallback((nextTab: Tab) => {
+    const nextPath = routeByTab[nextTab];
+    if (window.location.pathname !== nextPath) window.history.pushState({ tab: nextTab }, '', nextPath);
     setTab(nextTab);
+    setSelectedUserId(null);
     setSearchQuery('');
     setPageHeaderCompact(false);
     previousPageHeaderHeight.current = 0;
     scrollAreaRef.current?.scrollTo({ top: 0 });
+  }, []);
+
+  const openUserDetails = useCallback((userId: string) => {
+    const nextPath = `/users/${encodeURIComponent(userId)}`;
+    if (window.location.pathname !== nextPath) window.history.pushState({ tab: 'users', userId }, '', nextPath);
+    setTab('users');
+    setSelectedUserId(userId);
+    setSearchQuery('');
+    setPageHeaderCompact(false);
+    scrollAreaRef.current?.scrollTo({ top: 0 });
+  }, []);
+
+  useEffect(() => {
+    const path = window.location.pathname.replace(/\/$/, '') || '/';
+    if (path === '/' || (!tabByRoute[path] && !userIdFromPath(path))) {
+      window.history.replaceState({ tab: tabFromPath(window.location.pathname) }, '', routeByTab[tabFromPath(window.location.pathname)]);
+    }
+    const handlePopState = () => {
+      setTab(tabFromPath(window.location.pathname));
+      setSelectedUserId(userIdFromPath(window.location.pathname));
+      setSearchQuery('');
+      setPageHeaderCompact(false);
+      previousPageHeaderHeight.current = 0;
+      scrollAreaRef.current?.scrollTo({ top: 0 });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
   const updateCatalogCount = useCallback((section: CatalogSection, total: number) => {
     const safeTotal = Number.isFinite(total) && total >= 0 ? total : 0;
@@ -211,7 +267,11 @@ export default function App() {
   useLayoutEffect(() => {
     const headerHeight = pageHeaderRef.current?.getBoundingClientRect().height;
     const scrollArea = scrollAreaRef.current;
-    if (headerHeight === undefined || !scrollArea) return;
+    if (!scrollArea) return;
+    if (headerHeight === undefined) {
+      previousPageHeaderHeight.current = 0;
+      return;
+    }
     if (previousPageHeaderHeight.current && Math.abs(headerHeight - previousPageHeaderHeight.current) > 1) {
       scrollArea.scrollTop = Math.max(0, scrollArea.scrollTop + headerHeight - previousPageHeaderHeight.current);
     }
@@ -225,19 +285,20 @@ export default function App() {
   const copy = pageCopy[tab];
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-surface text-ink selection:bg-band">
-      <AdminHeader user={me} searchQuery={searchQuery} onSearch={setSearchQuery} onSignOut={requestSignOut} />
+      <AdminHeader user={me} searchQuery={searchQuery} onSearch={setSearchQuery} onSignOut={requestSignOut} onNotifications={() => changeTab('notifications')} />
       <div className="flex min-h-0 w-full flex-1 overflow-hidden">
         <Sidebar active={tab} onChange={changeTab} user={me} onSignOut={requestSignOut} />
         <div ref={scrollAreaRef} onScroll={(event) => { const top = event.currentTarget.scrollTop; setPageHeaderCompact((compact) => compact ? top > 24 : top > 160); }} className="hide-scrollbar min-w-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5 lg:px-6">
           <MobileNav active={tab} onChange={changeTab} onSignOut={requestSignOut} />
-          <AdminPageHeader copy={copy} compact={pageHeaderCompact} headerRef={pageHeaderRef} />
+          {tab !== 'dashboard' && <AdminPageHeader copy={copy} compact={pageHeaderCompact} headerRef={pageHeaderRef} />}
           <div className={`mt-4 grid gap-5 ${rightPanelOpen ? 'xl:grid-cols-[minmax(0,1fr)_270px]' : 'xl:grid-cols-[minmax(0,1fr)]'}`}>
             <div className="documentation-panel min-w-0">
-              {tab === 'users' && <UsersPanel token={token} me={me} notify={setNotice} searchQuery={searchQuery} />}
+              {tab === 'users' && <UsersPanel token={token} me={me} notify={setNotice} searchQuery={searchQuery} selectedUserId={selectedUserId} onViewUser={openUserDetails} onBackToUsers={() => changeTab('users')} />}
               {tab === 'dashboard' && <DashboardPage token={token} notify={setNotice} onNavigate={changeTab} />}
               {tab === 'music' && <MusicPanel token={token} notify={setNotice} searchQuery={searchQuery} onSearch={setSearchQuery} />}
               {tab === 'workflow' && <MusicWorkflowPage activeStepId={workflowStepId} onStepSelect={setWorkflowStepId} />}
               {tab === 'policies' && <PoliciesPanel token={token} notify={setNotice} />}
+              {tab === 'notifications' && <NotificationsPanel token={token} notify={setNotice} />}
               {tab === 'catalog' && <CatalogWorkspace token={token} notify={setNotice} searchQuery={searchQuery} section={catalogSection} onCountChange={updateCatalogCount} />}
               {tab === 'import' && <ImportPanel token={token} notify={setNotice} />}
               {tab === 'settings' && <SettingsPage me={me} token={token} notify={setNotice} onMeUpdate={(user) => { setMeState(user); dispatch(setMe(user)); }} />}
@@ -296,18 +357,18 @@ const navItems: { id: Tab; label: string; description: string; icon: LucideIcon 
   { id: 'settings', label: 'Settings', description: 'Profile and controls', icon: Settings },
 ];
 
-function AdminHeader({ user, searchQuery, onSearch, onSignOut }: { user: User; searchQuery: string; onSearch: (query: string) => void; onSignOut: () => void }) {
+function AdminHeader({ user, searchQuery, onSearch, onSignOut, onNotifications }: { user: User; searchQuery: string; onSearch: (query: string) => void; onSignOut: () => void; onNotifications: () => void }) {
   const avatarUrl = resolveImageUrl(user.image);
-  return <div className="relative z-30 shrink-0"><div className="hidden h-8 bg-blackbar px-5 text-xs text-white sm:block"><div className="mx-auto flex h-full max-w-[1680px] items-center justify-end gap-5"><span>Music Platform administration</span><button className="inline-flex items-center gap-1 hover:text-gold-soft">Preferences <ChevronDown size={12} /></button><button className="hover:text-gold-soft">Support</button></div></div><header className="border-b border-border bg-white/95 backdrop-blur"><div className="mx-auto flex h-16 max-w-[1680px] items-center gap-3 px-4 sm:gap-5 sm:px-6"><Brand /><div className="ml-auto hidden max-w-md flex-1 items-center md:flex"><label className="relative w-full"><span className="sr-only">Search the current dashboard section</span><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={17} /><input value={searchQuery} onChange={(event) => onSearch(event.target.value)} className="w-full rounded-lg border border-divider bg-surface-soft py-2 pl-9 pr-9 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="Search this section" />{searchQuery && <button type="button" onClick={() => onSearch('')} className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-muted hover:bg-band hover:text-navy" aria-label="Clear search"><X size={15} /></button>}</label></div><button className="hidden rounded-lg p-2 text-muted hover:bg-band hover:text-navy sm:grid sm:place-items-center" title="Notifications" aria-label="Notifications"><Bell size={18} /></button><span className="hidden h-8 w-px bg-border sm:block" /><button className="hidden items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface-soft sm:flex" onClick={onSignOut} title="Sign out"><Avatar name={user.name} imageUrl={avatarUrl} /><span className="hidden xl:block"><span className="block text-xs font-bold text-ink">{user.name}</span><span className="block max-w-36 truncate text-[11px] text-muted">{user.email}</span></span></button></div></header></div>;
+  return <div className="relative z-30 shrink-0"><div className="hidden h-8 bg-blackbar px-5 text-xs text-white sm:block"><div className="mx-auto flex h-full max-w-[1680px] items-center justify-end gap-5"><span>Music Platform administration</span><button className="inline-flex items-center gap-1 hover:text-gold-soft">Preferences <ChevronDown size={12} /></button><button className="hover:text-gold-soft">Support</button></div></div><header className="border-b border-border bg-white/95 backdrop-blur"><div className="mx-auto flex h-16 max-w-[1680px] items-center gap-3 px-4 sm:gap-5 sm:px-6"><Brand /><div className="ml-auto hidden max-w-md flex-1 items-center md:flex"><label className="relative w-full"><span className="sr-only">Search the current dashboard section</span><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={17} /><input value={searchQuery} onChange={(event) => onSearch(event.target.value)} className="w-full rounded-lg border border-divider bg-surface-soft py-2 pl-9 pr-9 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" placeholder="Search this section" />{searchQuery && <button type="button" onClick={() => onSearch('')} className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-muted hover:bg-band hover:text-navy" aria-label="Clear search"><X size={15} /></button>}</label></div><button type="button" onClick={onNotifications} className="hidden rounded-lg p-2 text-muted hover:bg-band hover:text-navy sm:grid sm:place-items-center" title="Notifications" aria-label="Notifications"><Bell size={18} /></button><span className="hidden h-8 w-px bg-border sm:block" /><button className="hidden items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface-soft sm:flex" onClick={onSignOut} title="Sign out"><Avatar name={user.name} imageUrl={avatarUrl} /><span className="hidden xl:block"><span className="block text-xs font-bold text-ink">{user.name}</span><span className="block max-w-36 truncate text-[11px] text-muted">{user.email}</span></span></button></div></header></div>;
 }
 
 function Sidebar({ active, onChange, user, onSignOut }: { active: Tab; onChange: (tab: Tab) => void; user: User; onSignOut: () => void }) {
   const avatarUrl = resolveImageUrl(user.image);
-  return <aside className="hidden h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-white px-2 py-3 lg:flex"><p className="px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-brown">Music management</p><nav className="mt-1.5 space-y-0.5" aria-label="Dashboard navigation">{navItems.map(({ id, label, description, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${active === id ? 'bg-navy-soft text-navy shadow-[inset_3px_0_0_#D6A323]' : 'text-muted hover:text-navy'}`}><span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${active === id ? 'bg-band text-navy' : 'text-brown group-hover:text-navy'}`}><Icon size={15} /></span><span className="min-w-0"><span className="block text-[13px] font-bold leading-4">{label}</span><span className="block truncate text-[10px] leading-3.5 text-muted">{description}</span></span>{active === id && <ChevronRight className="ml-auto text-navy" size={14} />}</button>)}</nav><div className="mt-3 border-t border-border pt-2.5"><p className="px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-brown">Workspace</p>{[{ id: 'workflow' as const, label: 'View music workflow', icon: Sparkles }, { id: 'policies' as const, label: 'Platform policies', icon: ShieldCheck }].map(({ id, label, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold transition ${active === id ? 'bg-navy-soft text-navy' : 'text-muted hover:text-navy'}`}><Icon size={15} className="shrink-0 text-brown" />{label}</button>)}</div><div className="mt-auto rounded-xl border border-border bg-surface-soft p-2"><div className="flex items-center gap-2"><Avatar name={user.name} imageUrl={avatarUrl} /><span className="min-w-0"><span className="block truncate text-[13px] font-bold text-ink">{user.name}</span><span className="block truncate text-[11px] text-muted">{user.email}</span></span></div><button className={`${secondary} mt-1.5 w-full py-1.5`} onClick={onSignOut}><LogOut size={14} />Sign out</button></div></aside>;
+  return <aside className="hidden h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-border bg-white px-2 py-3 lg:flex"><p className="px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-brown">Music management</p><nav className="mt-1.5 space-y-0.5" aria-label="Dashboard navigation">{navItems.map(({ id, label, description, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${active === id ? 'bg-navy-soft text-navy shadow-[inset_3px_0_0_#D6A323]' : 'text-muted hover:text-navy'}`}><span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${active === id ? 'bg-band text-navy' : 'text-brown group-hover:text-navy'}`}><Icon size={15} /></span><span className="min-w-0"><span className="block text-[13px] font-bold leading-4">{label}</span><span className="block truncate text-[10px] leading-3.5 text-muted">{description}</span></span>{active === id && <ChevronRight className="ml-auto text-navy" size={14} />}</button>)}</nav><div className="mt-3 border-t border-border pt-2.5"><p className="px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-brown">Workspace</p>{[{ id: 'workflow' as const, label: 'View music workflow', icon: Sparkles }, { id: 'policies' as const, label: 'Platform policies', icon: ShieldCheck }, { id: 'notifications' as const, label: 'Notifications', icon: Bell }].map(({ id, label, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold transition ${active === id ? 'bg-navy-soft text-navy' : 'text-muted hover:text-navy'}`}><Icon size={15} className="shrink-0 text-brown" />{label}</button>)}</div><div className="mt-auto rounded-xl border border-border bg-surface-soft p-2"><div className="flex items-center gap-2"><Avatar name={user.name} imageUrl={avatarUrl} /><span className="min-w-0"><span className="block truncate text-[13px] font-bold text-ink">{user.name}</span><span className="block truncate text-[11px] text-muted">{user.email}</span></span></div><button className={`${secondary} mt-1.5 w-full py-1.5`} onClick={onSignOut}><LogOut size={14} />Sign out</button></div></aside>;
 }
 
 function MobileNav({ active, onChange, onSignOut }: { active: Tab; onChange: (tab: Tab) => void; onSignOut: () => void }) {
-  return <div className="mt-4 mb-5 flex items-center gap-2 border-b border-border pb-4 lg:hidden"><button className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-white text-navy" aria-label="Dashboard sections"><Menu size={19} /></button><div className="hide-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto">{[...navItems, { id: 'workflow' as const, label: 'Workflow', icon: Sparkles }, { id: 'policies' as const, label: 'Policies', icon: ShieldCheck }].map(({ id, label, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${active === id ? 'bg-navy text-white' : 'bg-white text-muted hover:bg-band hover:text-navy'}`}><Icon size={16} />{label}</button>)}</div><button title="Sign out" onClick={onSignOut} className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-white text-navy"><LogOut size={17} /></button></div>;
+  return <div className="mt-4 mb-5 flex items-center gap-2 border-b border-border pb-4 lg:hidden"><button className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-white text-navy" aria-label="Dashboard sections"><Menu size={19} /></button><div className="hide-scrollbar flex min-w-0 flex-1 gap-1 overflow-x-auto">{[...navItems, { id: 'workflow' as const, label: 'Workflow', icon: Sparkles }, { id: 'policies' as const, label: 'Policies', icon: ShieldCheck }, { id: 'notifications' as const, label: 'Notifications', icon: Bell }].map(({ id, label, icon: Icon }) => <button key={id} onClick={() => onChange(id)} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${active === id ? 'bg-navy text-white' : 'bg-white text-muted hover:bg-band hover:text-navy'}`}><Icon size={16} />{label}</button>)}</div><button title="Sign out" onClick={onSignOut} className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-white text-navy"><LogOut size={17} /></button></div>;
 }
 
 function LogoutDialog({ user, onCancel, onConfirm }: { user: User; onCancel: () => void; onConfirm: () => void }) {
@@ -435,10 +496,9 @@ function Toast({ notice, onDismiss }: { notice: Notice; onDismiss: () => void })
   return <div className="pointer-events-none fixed inset-x-4 bottom-5 z-40 flex justify-center sm:bottom-7" aria-live="polite" aria-atomic="true"><div className={`pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium shadow-[0_16px_45px_rgba(31,36,48,0.2)] animate-slide-fade-in ${palette}`} role={notice.tone === 'error' ? 'alert' : 'status'}><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-current/10"><Icon size={18} /></span><p className="min-w-0 flex-1 text-ink">{notice.text}</p><button className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-surface hover:text-ink" onClick={onDismiss} aria-label="Dismiss message"><X size={17} /></button></div></div>;
 }
 
-function UsersPanel({ token, me, notify, searchQuery }: { token: string; me: User; notify: (notice: Notice) => void; searchQuery: string }) {
+function UsersPanel({ token, me, notify, searchQuery, selectedUserId, onViewUser, onBackToUsers }: { token: string; me: User; notify: (notice: Notice) => void; searchQuery: string; selectedUserId: string | null; onViewUser: (userId: string) => void; onBackToUsers: () => void }) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewing, setViewing] = useState<User | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try { setUsers((await api<{ data: User[] }>(token, '/admin/users?limit=100')).data); }
@@ -459,9 +519,9 @@ function UsersPanel({ token, me, notify, searchQuery }: { token: string; me: Use
     { key: 'role', title: 'Role', render: (user: User) => <span className="rounded-full border border-border bg-surface-soft px-2.5 py-1 text-xs font-semibold capitalize text-ink">{user.role}</span> },
     { key: 'joined', title: 'Joined', render: (user: User) => <span className="whitespace-nowrap text-xs text-muted">{formatDate(user.createdAt)}</span> },
     { key: 'status', title: 'Status', render: (user: User) => <StatusBadge active={!user.disabled} /> },
-    { key: 'actions', title: 'Actions', className: 'w-28 text-right', render: (user: User) => <div className="flex justify-end gap-1"><button type="button" onClick={() => setViewing(user)} className="grid h-8 w-8 place-items-center rounded-lg text-navy hover:bg-band" aria-label={`View ${user.name}`} title="View user"><Eye size={16} /></button>{user.id !== me.id && <button type="button" onClick={() => void toggle(user)} className="rounded-lg px-2 py-1 text-xs font-semibold text-navy hover:bg-band" title={user.disabled ? 'Enable account' : 'Disable account'}>{user.disabled ? 'Enable' : 'Disable'}</button>}</div> },
+    { key: 'actions', title: 'Actions', className: 'w-28 text-right', render: (user: User) => <div className="flex justify-end gap-1"><button type="button" onClick={() => onViewUser(user.id)} className="grid h-8 w-8 place-items-center rounded-lg text-navy hover:bg-band" aria-label={`View ${user.name}`} title="View user"><Eye size={16} /></button>{user.id !== me.id && <button type="button" onClick={() => void toggle(user)} className="rounded-lg px-2 py-1 text-xs font-semibold text-navy hover:bg-band" title={user.disabled ? 'Enable account' : 'Disable account'}>{user.disabled ? 'Enable' : 'Disable'}</button>}</div> },
   ];
-  if (viewing) return <UserDetailsPage token={token} user={viewing} currentUser={viewing.id === me.id} onBack={() => setViewing(null)} />;
+  if (selectedUserId) return <UserDetailsPage token={token} userId={selectedUserId} user={users.find((user) => user.id === selectedUserId)} currentUser={selectedUserId === me.id} onBack={onBackToUsers} />;
   return <>
     <section className="space-y-5"><div className="grid gap-4 sm:grid-cols-3"><Metric id="user-accounts" label="Total accounts" value={users.length} icon={Users} tone="violet" /><Metric label="Active accounts" value={activeUsers} icon={Check} tone="emerald" /><Metric id="account-status" label="Restricted" value={users.length - activeUsers} icon={ShieldCheck} tone="amber" /></div><section id="access-controls" className="overflow-hidden rounded-3xl border border-white/[0.09] bg-slate-900/50 shadow-2xl shadow-black/10 backdrop-blur"><div className="flex flex-col gap-4 border-b border-white/[0.08] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><div><h2 className="text-lg font-bold text-white">All users</h2><p className="mt-1 text-sm text-slate-500">{normalizedQuery ? `${visibleUsers.length} result${visibleUsers.length === 1 ? '' : 's'} for “${searchQuery.trim()}”` : 'Manage platform accounts and access.'}</p></div><button className={secondary} onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? 'animate-spin' : ''} size={16} />Refresh</button></div><CommonTable rows={visibleUsers} columns={columns} rowKey={(user) => user.id} loading={loading} pageSize={10} emptyMessage={normalizedQuery ? 'No matching users. Try another search.' : 'No user accounts found.'} /></section></section>
   </>;
@@ -482,22 +542,23 @@ type UserDetailResponse = {
   };
 };
 
-function UserDetailsPage({ token, user, currentUser, onBack }: { token: string; user: User; currentUser: boolean; onBack: () => void }) {
+function UserDetailsPage({ token, userId, user, currentUser, onBack }: { token: string; userId: string; user?: User; currentUser: boolean; onBack: () => void }) {
   const [details, setDetails] = useState<UserDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
     setLoading(true);
-    api<UserDetailResponse>(token, `/admin/users/${user.id}/details`).then((response) => {
+    api<UserDetailResponse>(token, `/admin/users/${userId}/details`).then((response) => {
       if (active) setDetails(response);
     }).catch((requestError) => {
       if (active) setError(messageOf(requestError));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [token, user.id]);
+  }, [token, userId]);
 
   const profile = details?.user ?? user;
+  if (!profile) return <section className="space-y-4"><button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm font-semibold text-navy hover:bg-surface-soft"><ArrowLeft size={16} />Back to users</button><div className="rounded-2xl border border-border bg-white p-8 text-center text-sm text-muted">{loading ? <><LoaderCircle className="mr-2 inline animate-spin" size={16} />Loading user details…</> : `Could not load user details: ${error || 'NOT_FOUND'}`}</div></section>;
   const listening = details?.listening;
   const image = profile.image ? resolveImageUrl(profile.image) : currentUser ? readStoredImage('admin-profile-image') : '';
   const maxDaySeconds = Math.max(1, ...(listening?.weekdays.map((day) => day.listenedSeconds) ?? [1]));
@@ -505,7 +566,7 @@ function UserDetailsPage({ token, user, currentUser, onBack }: { token: string; 
 
   return <section className="space-y-4">
     <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm font-semibold text-navy hover:bg-surface-soft"><ArrowLeft size={16} />Back to users</button>
-    <article className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-white p-4 sm:p-5"><Avatar name={profile.name} imageUrl={image} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold text-ink">{profile.name}</h2><StatusBadge active={!profile.disabled} /><span className="rounded-full border border-border bg-surface-soft px-2.5 py-1 text-xs font-semibold capitalize text-ink">{profile.role}</span><span className="rounded-md bg-band px-2 py-1 font-mono text-xs font-bold text-navy">{profile.publicId || user.publicId || 'Assigning ID…'}</span></div><p className="mt-1 text-sm text-muted">{profile.email}</p><p className="mt-1 text-xs text-muted">Joined {formatDate(profile.createdAt)} · Account {profile.id}</p></div></article>
+    <article className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-white p-4 sm:p-5"><Avatar name={profile.name} imageUrl={image} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold text-ink">{profile.name}</h2><StatusBadge active={!profile.disabled} /><span className="rounded-full border border-border bg-surface-soft px-2.5 py-1 text-xs font-semibold capitalize text-ink">{profile.role}</span><span className="rounded-md bg-band px-2 py-1 font-mono text-xs font-bold text-navy">{profile.publicId || user?.publicId || 'Assigning ID…'}</span></div><p className="mt-1 text-sm text-muted">{profile.email}</p><p className="mt-1 text-xs text-muted">Joined {formatDate(profile.createdAt)} · Account {profile.id}</p></div></article>
     {loading ? <div className="rounded-2xl border border-border bg-white p-8 text-center text-sm text-muted"><LoaderCircle className="mr-2 inline animate-spin" size={16} />Loading listening details…</div> : error ? <div className="rounded-2xl border border-rose-200 bg-white p-5 text-sm text-rose-700">Could not load user listening details: {error}</div> : <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><UserStat label="Listening time" value={formatListeningTime(listening?.totalListenedSeconds ?? 0)} /><UserStat label="Listening events" value={(listening?.totalEvents ?? 0).toLocaleString()} /><UserStat label="Plays" value={(listening?.plays ?? 0).toLocaleString()} /><UserStat label="Completed tracks" value={(listening?.completions ?? 0).toLocaleString()} /></div>
       <div className="grid gap-4 xl:grid-cols-2"><section className="rounded-2xl border border-border bg-white p-4 sm:p-5"><h3 className="font-bold text-ink">Listening by weekday</h3><p className="mt-1 text-xs text-muted">Total listening time grouped by day</p><div className="mt-5 space-y-3">{(listening?.weekdays ?? []).map((day) => <div key={day.name} className="grid grid-cols-[2.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 text-xs"><span className="text-muted">{day.name.slice(0, 3)}</span><div className="h-2 overflow-hidden rounded-full bg-surface-soft"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(day.listenedSeconds ? 3 : 0, (day.listenedSeconds / maxDaySeconds) * 100)}%` }} /></div><span className="text-right font-medium text-ink">{formatListeningTime(day.listenedSeconds)}</span></div>)}</div></section>
@@ -521,6 +582,29 @@ function UserStat({ label, value }: { label: string; value: string }) {
 }
 
 type PlatformPolicyRecord = { _id: string; title: string; type: 'terms' | 'privacy' | 'content' | 'community' | 'other'; version: string; effectiveAt: string; content: string; active: boolean };
+
+function NotificationsPanel({ token, notify }: { token: string; notify: (notice: Notice) => void }) {
+  type AdminNotification = { id: string; title: string; body: string; createdAt: string; readAt?: string; user: { id: string; publicId?: string; name: string; email: string } };
+  type NotificationPage = { data: AdminNotification[]; page: number; limit: number; total: number; unreadCount: number };
+  const [notifications, setNotifications] = useState<NotificationPage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api<NotificationPage>(token, `/admin/notifications?page=${page}&limit=20`).then((result) => {
+      if (active) setNotifications(result);
+    }).catch((error) => notify({ tone: 'error', text: messageOf(error) })).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [token, notify, page, reload]);
+  const totalPages = Math.max(1, Math.ceil((notifications?.total ?? 0) / (notifications?.limit ?? 20)));
+  return <section id="all-notifications" className="overflow-hidden rounded-2xl border border-border bg-white">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 sm:p-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-band text-navy"><Bell size={18} /></span><div><h2 className="font-bold text-ink">All notifications</h2><p className="mt-1 text-sm text-muted">{(notifications?.total ?? 0).toLocaleString()} sent · {(notifications?.unreadCount ?? 0).toLocaleString()} unread across users</p></div></div><button type="button" className={secondary} onClick={() => setReload((current) => current + 1)} disabled={loading}>{loading ? <LoaderCircle className="animate-spin" size={15} /> : <RefreshCw size={15} />}Refresh</button></div>
+    {loading && !notifications ? <p className="p-8 text-center text-sm text-muted"><LoaderCircle className="mr-2 inline animate-spin" size={16} />Loading notifications…</p> : notifications?.data.length ? <div className="divide-y divide-border">{notifications.data.map((item) => <article key={item.id} className="flex flex-wrap items-start justify-between gap-3 p-4 sm:px-5"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-ink">{item.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${item.readAt ? 'bg-surface-soft text-muted' : 'bg-amber-100 text-amber-800'}`}>{item.readAt ? 'Read' : 'Unread'}</span></div><p className="mt-1 whitespace-pre-wrap text-sm text-muted">{item.body}</p><p className="mt-2 text-xs text-muted">To: {item.user?.name || 'Unknown user'}{item.user?.email ? ` · ${item.user.email}` : ''}{item.user?.publicId ? ` · ${item.user.publicId}` : ''}</p></div><time className="shrink-0 text-xs text-muted">{formatDate(item.createdAt)}</time></article>)}</div> : <p className="p-8 text-center text-sm text-muted">No notifications have been sent yet.</p>}
+    <footer className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted"><span>Page {page} / {totalPages}</span><div className="flex gap-2"><button type="button" className={secondary} disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button><button type="button" className={secondary} disabled={page >= totalPages || loading} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button></div></footer>
+  </section>;
+}
 
 function PoliciesPanel({ token, notify }: { token: string; notify: (notice: Notice) => void }) {
   const [policies, setPolicies] = useState<PlatformPolicyRecord[]>([]);

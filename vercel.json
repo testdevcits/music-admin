@@ -11,5 +11,8 @@
         { "key": "Content-Security-Policy", "value": "default-src 'self'; connect-src 'self' https:; img-src 'self' data: https://res.cloudinary.com; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" }
       ]
     }
+  ],
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
