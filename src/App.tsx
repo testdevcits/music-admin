@@ -979,7 +979,7 @@ function ImportPanel({ token, notify }: { token: string; notify: (notice: Notice
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="truncate text-lg font-bold text-white">{item.title || 'Untitled track'}</h3>
-                        {item.sourceLicense && <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-200">License approved</span>}
+                        {item.sourceLicense && <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-200">License info supplied</span>}
                       </div>
                       <p className="mt-1 text-sm text-slate-400">{item.artist || 'Unknown artist'} · {item.album || 'Unknown album'}</p>
                       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400">
@@ -1080,7 +1080,33 @@ function LicenseDialog({ token, song, onClose, onSaved, onError }: { token: stri
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
     const form = new FormData(event.currentTarget);
-    try { const endsAt = new Date(`${String(form.get('endsAt'))}T23:59:59.999Z`); const songId = song.mongoId ?? song.id; await api(token, `/admin/licenses/${songId}`, { method: 'PUT', body: JSON.stringify({ song: songId, holder: form.get('holder'), startsAt: new Date().toISOString(), endsAt: endsAt.toISOString(), streaming: true, offline: true, territories: [], enabled: true }) }); await onSaved(); }
+    try {
+      const endsAt = new Date(`${String(form.get('endsAt'))}T23:59:59.999Z`);
+      const songId = song.mongoId ?? song.id;
+      const reviewed = form.get('reviewed') === 'on';
+      await api(token, `/admin/licenses/${songId}`, { method: 'PUT', body: JSON.stringify({
+        song: songId,
+        holder: form.get('holder'),
+        startsAt: new Date().toISOString(),
+        endsAt: endsAt.toISOString(),
+        source: form.get('source'),
+        licenseName: form.get('licenseName'),
+        evidenceUrl: form.get('evidenceUrl') || undefined,
+        documentReference: form.get('documentReference') || undefined,
+        streaming: form.get('inAppStreaming') === 'on',
+        inAppStreaming: form.get('inAppStreaming') === 'on',
+        audioHosting: form.get('audioHosting') === 'on',
+        commercialUse: form.get('commercialUse') === 'on',
+        artworkUse: form.get('artworkUse') === 'on',
+        lyricsUse: form.get('lyricsUse') === 'on',
+        offline: form.get('offline') === 'on',
+        territories: String(form.get('territories') || '').split(',').map((value) => value.trim().toUpperCase()).filter(Boolean),
+        verificationStatus: reviewed ? 'verified' : 'pending',
+        verificationNotes: form.get('verificationNotes') || undefined,
+        enabled: true,
+      }) });
+      await onSaved();
+    }
     catch (error) { onError(messageOf(error)); } finally { setBusy(false); }
   }
   return (
@@ -1090,17 +1116,23 @@ function LicenseDialog({ token, song, onClose, onSaved, onError }: { token: stri
           <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-400/15" style={{ color: '#c4b5fd' }}><ShieldCheck size={20} /></span>
           <div className="flex-1">
             <h2 id="license-title" className="font-bold" style={{ color: '#f8fafc' }}>Set music rights</h2>
-            <p className="mt-1 text-sm leading-5" style={{ color: '#cbd5e1' }}>{song.title} will be eligible for streaming and offline playback until this license expires.</p>
+            <p className="mt-1 text-sm leading-5" style={{ color: '#cbd5e1' }}>Save the rights evidence and only verify permissions stated in the actual agreement. Publishing remains blocked until streaming rights are verified.</p>
           </div>
           <button className="rounded-lg p-1 hover:bg-white/10" style={{ color: '#cbd5e1' }} type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
-        <div className="mt-6 space-y-4">
-          <label className="block text-sm font-semibold" style={{ color: '#e2e8f0' }}>Rights holder
-            <input className={inputClass} name="holder" placeholder="Label or rights owner" required />
-          </label>
-          <label className="block text-sm font-semibold" style={{ color: '#e2e8f0' }}>License expiry
-            <input className={inputClass} name="endsAt" type="date" min={new Date().toISOString().slice(0, 10)} defaultValue={new Date(Date.now() + 31536000000).toISOString().slice(0, 10)} required />
-          </label>
+        <div className="mt-6 grid max-h-[60vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+          <Field label="Rights holder"><input className={inputClass} name="holder" placeholder="Artist, label, or provider" required /></Field>
+          <Field label="Source"><select className={inputClass} name="source" defaultValue="label"><option value="artist">Artist</option><option value="label">Label</option><option value="provider">Licensed provider</option><option value="public-domain">Public domain</option><option value="creative-commons">Creative Commons</option><option value="other">Other</option></select></Field>
+          <Field label="License / agreement name"><input className={inputClass} name="licenseName" placeholder="Agreement or license title" required /></Field>
+          <Field label="License expiry"><input className={inputClass} name="endsAt" type="date" min={new Date().toISOString().slice(0, 10)} defaultValue={new Date(Date.now() + 31536000000).toISOString().slice(0, 10)} required /></Field>
+          <Field label="Evidence URL"><input className={inputClass} name="evidenceUrl" type="url" placeholder="https://… (private access link)" /></Field>
+          <Field label="Document reference"><input className={inputClass} name="documentReference" placeholder="Contract ID / secure document key" /></Field>
+          <Field label="Territories (ISO codes)"><input className={inputClass} name="territories" placeholder="IN (only if license grants India)" /><Hint>Leave blank only for worldwide rights. Territory-limited playback is currently blocked until trusted location checks are configured.</Hint></Field>
+          <Field label="Review notes"><input className={inputClass} name="verificationNotes" placeholder="Scope, limitations, approval note" /></Field>
+          <div className="space-y-2 sm:col-span-2">
+            {[['inAppStreaming', 'Full song streaming inside this app'], ['audioHosting', 'Store/host the audio files'], ['commercialUse', 'Commercial use is covered'], ['offline', 'Offline playback is covered'], ['artworkUse', 'Artwork display is covered'], ['lyricsUse', 'Lyrics display is covered']].map(([field, label]) => <label key={field} className="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name={field} className="accent-violet-500" />{label}</label>)}
+          </div>
+          <label className="flex items-start gap-2 text-xs leading-5 text-amber-100 sm:col-span-2"><input type="checkbox" name="reviewed" className="mt-1 accent-emerald-500" required />I reviewed the supporting agreement and confirmed the checked permissions specifically cover this app and its intended use.</label>
         </div>
         <div className="mt-7 flex justify-end gap-3"><button className={secondary} type="button" onClick={onClose}>Cancel</button><button className={primary} disabled={busy}>{busy && <LoaderCircle className="animate-spin" size={16} />}Save rights</button></div>
       </form>
