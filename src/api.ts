@@ -113,7 +113,13 @@ export async function upload(token: string, songId: string, kind: 'audio' | 'cov
     if (!uploaded.ok) throw new ApiError(uploadedBody?.error?.message || `Cloudinary upload failed (${uploaded.status})`);
     return api<{ status: string; uploadId: string; jobId: string }>(token, `/admin/songs/${songId}/cloudinary-complete`, {
       method: 'POST',
-      body: JSON.stringify({ publicId: uploadedBody.public_id, bytes: uploadedBody.bytes }),
+      body: JSON.stringify({
+        publicId: uploadedBody.public_id,
+        bytes: uploadedBody.bytes,
+        version: uploadedBody.version,
+        duration: uploadedBody.duration,
+        bitrate: uploadedBody.audio?.bit_rate ? Math.round(Number(uploadedBody.audio.bit_rate) / 1000) : undefined,
+      }),
     });
   }
   const response = await fetch(`${baseUrl}/admin/songs/${songId}/uploads`, {
