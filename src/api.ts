@@ -54,7 +54,7 @@ export type Song = {
   tags?: string[];
   processing: 'pending' | 'processing' | 'ready' | 'failed';
   published: boolean;
-  audio?: { quality: string }[];
+  audio?: { quality: string; url?: string; mime?: string }[];
 };
 export type ApiErrorDetails = {
   formErrors?: string[];

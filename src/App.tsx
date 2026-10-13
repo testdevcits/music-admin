@@ -846,12 +846,22 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
     }
     setPreviewLoadingId(song.id);
     try {
-      const response = await fetch(`${apiBaseUrl}/admin/songs/${songId}/preview`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!response.ok) throw new Error('PREVIEW_UNAVAILABLE');
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      // Hosted audio can stream immediately; fetching it as a blob waits for the entire song.
+      let url = song.audio?.find((item) => item.url)?.url;
+      let objectUrl = '';
+      if (!url) {
+        const response = await fetch(`${apiBaseUrl}/admin/songs/${songId}/preview`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error?.code || `Preview request failed (${response.status})`);
+        }
+        const blob = await response.blob();
+        if (!blob.size) throw new Error('The song audio file is empty.');
+        url = objectUrl = URL.createObjectURL(blob);
+      }
+      audio.pause();
       if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
-      previewObjectUrlRef.current = url;
+      previewObjectUrlRef.current = objectUrl;
       audio.src = url;
       audio.load();
       setActivePreview({ song, artistName });
@@ -859,8 +869,12 @@ function MusicPanel({ token, notify, searchQuery, onSearch, active }: { token: s
       setPreviewTime(0);
       setPreviewDuration(0);
       await audio.play();
-    } catch {
-      notify({ tone: 'error', text: 'Unable to load this audio preview. Check that the song audio is ready.' });
+    } catch (error) {
+      setPreviewPlaying(false);
+      const text = error instanceof DOMException && error.name === 'NotAllowedError'
+        ? 'Audio is ready. Press play again to allow browser playback.'
+        : `Unable to play this audio preview: ${messageOf(error)}`;
+      notify({ tone: 'error', text });
     } finally { setPreviewLoadingId(null); }
   }
   function closePreview() {
